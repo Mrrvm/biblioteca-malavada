@@ -1,0 +1,43 @@
+{
+  "name": "library",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.948.0",
+    "@aws-sdk/s3-request-presigner": "^3.948.0",
+    "@hookform/resolvers": "^5.2.2",
+    "@phosphor-icons/react": "^2.1.10",
+    "css-select": "^6.0.0",
+    "dom-parser": "^1.1.5",
+    "epubjs": "^0.3.93",
+    "googleapis": "^173.0.0",
+    "jimp": "^1.6.0",
+    "jszip": "^3.10.1",
+    "next": "16.0.10",
+    "next-auth": "^5.0.0-beta.32",
+    "pdf-lib": "^1.17.1",
+    "pdf-parse": "^2.4.5",
+    "pdf2pic": "^3.2.0",
+    "postcss": "^8.5.6",
+    "react": "19.2.1",
+    "react-dom": "19.2.1",
+    "react-hook-form": "^7.68.0",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.0.10",
+    "tailwindcss": "^4.1.18",
+    "typescript": "^5"
+  }
+}
