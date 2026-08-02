@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { BookNote, LibraryData } from '@/app/types/book';
-import { getGoogleDriveClient, getLibraryMetadata, saveLibraryMetadata, uploadFileToDrive } from '@/lib/googleDrive';
+import { getGoogleDriveClient, getLibraryMetadata, saveLibraryMetadata, uploadFileToDrive, normalizeLibraryData } from '@/lib/googleDrive';
 import { auth } from '../auth/[...nextauth]/route';
 
 const GOOGLE_DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID!;
@@ -8,17 +8,15 @@ const GOOGLE_DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID!;
 async function getLibraryData(drive: any): Promise<LibraryData> {
   try {
     const data = await getLibraryMetadata(drive, GOOGLE_DRIVE_FOLDER_ID);
-    return {
-      books: data.books || [], notes: data.notes || [], userBookStates: data.userBookStates || []
-    };
+    return normalizeLibraryData(data);
   } catch (error) {
     console.error('Error fetching library data:', error);
-    return { books: [], notes: [], userBookStates: [] };
+    return normalizeLibraryData({});
   }
 }
 
 async function saveLibraryData(drive: any, data: LibraryData) {
-  await saveLibraryMetadata(drive, GOOGLE_DRIVE_FOLDER_ID, data);
+  await saveLibraryMetadata(drive, GOOGLE_DRIVE_FOLDER_ID, normalizeLibraryData(data));
 }
 
 export async function POST(request: NextRequest) {
@@ -27,7 +25,7 @@ export async function POST(request: NextRequest) {
     if (!session || !session.user?.id) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
-    const drive = await getGoogleDriveClient(false); // Use service account
+    const drive = await getGoogleDriveClient(true); // Use user OAuth client
 
     const formData = await request.formData();
     const text = formData.get('text') as string | null;
@@ -73,7 +71,7 @@ export async function DELETE(request: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
-    const drive = await getGoogleDriveClient(false); // Use service account
+    const drive = await getGoogleDriveClient(true); // Use user OAuth client
 
     const { id } = await request.json();
 

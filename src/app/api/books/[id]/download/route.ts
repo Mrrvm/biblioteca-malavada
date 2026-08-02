@@ -9,11 +9,12 @@ async function getLibraryData(drive: any): Promise<LibraryData> {
   try {
     const data = await getLibraryMetadata(drive, GOOGLE_DRIVE_FOLDER_ID);
     return {
-      books: data.books || [], notes: data.notes || [], userBookStates: data.userBookStates || []
+      books: data.books || [], notes: data.notes || [], userBookStates: data.userBookStates || [],
+      collections: data.collections || [], booksToAcquire: data.booksToAcquire || []
     };
   } catch (error) {
     console.error('Error fetching library data:', error);
-    return { books: [], notes: [], userBookStates: [] };
+    return { books: [], notes: [], userBookStates: [], collections: [], booksToAcquire: [] };
   }
 }
 

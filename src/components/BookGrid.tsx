@@ -16,7 +16,7 @@ function BookGrid({ books, onBookClick }: BookGridProps) {
                     className="group cursor-pointer transition-transform hover:scale-105"
                     onClick={() => onBookClick(book)}
                 >
-                    <div className="aspect-[3/4] bg-gray-200 rounded-lg overflow-hidden shadow-md">
+                    <div className="bg-gray-200 rounded-lg overflow-hidden shadow-md" style={{ aspectRatio: '3 / 4' }}>
                         {book.coverImage ? (
                             <img
                                 src={book.coverImage}

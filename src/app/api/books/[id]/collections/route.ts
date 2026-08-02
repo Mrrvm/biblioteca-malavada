@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { LibraryData } from '@/app/types/book';
-import { getGoogleDriveClient, getLibraryMetadata, saveLibraryMetadata } from '@/lib/googleDrive';
+import { getGoogleDriveClient, getLibraryMetadata, saveLibraryMetadata, normalizeLibraryData } from '@/lib/googleDrive';
 import { auth } from '../../../auth/[...nextauth]/route';
 
 const GOOGLE_DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID!;
@@ -8,17 +8,15 @@ const GOOGLE_DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID!;
 async function getLibraryData(drive: any): Promise<LibraryData> {
   try {
     const data = await getLibraryMetadata(drive, GOOGLE_DRIVE_FOLDER_ID);
-    return {
-      books: data.books || [], notes: data.notes || [], userBookStates: data.userBookStates || []
-    };
+    return normalizeLibraryData(data);
   } catch (error) {
     console.error('Error fetching library data:', error);
-    return { books: [], notes: [], userBookStates: [] };
+    return normalizeLibraryData({});
   }
 }
 
 async function saveLibraryData(drive: any, data: LibraryData) {
-  await saveLibraryMetadata(drive, GOOGLE_DRIVE_FOLDER_ID, data);
+  await saveLibraryMetadata(drive, GOOGLE_DRIVE_FOLDER_ID, normalizeLibraryData(data));
 }
 
 // POST - Add book to collection
@@ -31,7 +29,7 @@ export async function POST(
     if (!session) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
-    const drive = await getGoogleDriveClient(false); // Use service account
+    const drive = await getGoogleDriveClient(true); // Use user OAuth client
 
     const { id } = await params;
     const { collection } = await request.json();
@@ -81,7 +79,7 @@ export async function DELETE(
     if (!session) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
-    const drive = await getGoogleDriveClient(false); // Use service account
+    const drive = await getGoogleDriveClient(true); // Use user OAuth client
 
     const { id } = await params;
     const { collection } = await request.json();

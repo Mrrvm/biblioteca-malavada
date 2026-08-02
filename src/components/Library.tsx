@@ -12,7 +12,7 @@ import { useSession, signIn, signOut } from 'next-auth/react';
 
 function Library() {
   const { data: session, status } = useSession();
-  const [libraryData, setLibraryData] = useState<LibraryData>({ books: [], notes: [], userBookStates: [] });
+  const [libraryData, setLibraryData] = useState<LibraryData>({ books: [], notes: [], userBookStates: [], collections: [], booksToAcquire: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -257,6 +257,9 @@ function Library() {
           await bookApi.deleteNote(noteId);
           await loadLibraryData();
         } : undefined}
+        allCollections={libraryData.collections}
+        allGenres={uniqueGenres}
+        onCollectionsChanged={loadLibraryData}
       />
 
       {isUploadModalOpen && session && (
