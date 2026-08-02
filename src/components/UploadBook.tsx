@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { bookApi } from '@/lib/api/books';
 import { UploadBookRequest } from '@/app/types/book';
 import { extractBookMetadata } from '@/lib/metadataExtractor';
@@ -16,6 +16,7 @@ export function UploadBook({ onUploadComplete }: UploadBookProps) {
     const [file, setFile] = useState<File | null>(null);
     const [customCover, setCustomCover] = useState<File | null>(null);
     const [customCoverPreview, setCustomCoverPreview] = useState<string | null>(null);
+    
     const fileInputRef = useRef<HTMLInputElement>(null);
     const cameraInputRef = useRef<HTMLInputElement>(null);
     const coverInputRef = useRef<HTMLInputElement>(null);
@@ -24,6 +25,13 @@ export function UploadBook({ onUploadComplete }: UploadBookProps) {
     const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
+
+    const [metadata, setMetadata] = useState<UploadBookRequest['metadata']>({
+        title: '',
+        author: '',
+        fileType: 'epub',
+        collections: [],
+    });
 
     useEffect(() => {
         if (!isCameraModalOpen) {
@@ -70,13 +78,6 @@ export function UploadBook({ onUploadComplete }: UploadBookProps) {
         }, 'image/jpeg', 0.92);
     };
 
-    const [metadata, setMetadata] = useState<UploadBookRequest['metadata']>({
-        title: '',
-        author: '',
-        fileType: 'epub' as const,
-        collections: [],
-    });
-
     const handleFileChange = async (selectedFile: File) => {
         setFile(selectedFile);
         setExtracting(true);
@@ -107,7 +108,6 @@ export function UploadBook({ onUploadComplete }: UploadBookProps) {
             } else if (extension === 'acsm') {
                 setMetadata(prev => ({ ...prev, fileType: 'acsm' as const }));
             }
-
         } catch (error) {
             console.error('Error extracting metadata:', error);
         } finally {
@@ -117,7 +117,6 @@ export function UploadBook({ onUploadComplete }: UploadBookProps) {
 
     const handleCustomCoverChange = (coverFile: File) => {
         setCustomCover(coverFile);
-        // Show preview
         const reader = new FileReader();
         reader.onload = (e) => {
             setCustomCoverPreview(e.target?.result as string);
@@ -130,12 +129,13 @@ export function UploadBook({ onUploadComplete }: UploadBookProps) {
         setUploading(true);
 
         try {
+            // customCover File is sent directly so the backend saves it in drive folder images/
             await bookApi.uploadBook(
                 { metadata },
                 metadata.fileType === 'physical' ? undefined : file!,
                 customCover || undefined
             );
-            alert('Book uploaded successfully!');
+            
             setFile(null);
             setCustomCover(null);
             setCustomCoverPreview(null);
@@ -160,9 +160,9 @@ export function UploadBook({ onUploadComplete }: UploadBookProps) {
     return (
         <form onSubmit={handleSubmit} className="space-y-4">
             <div className='flex flex-col gap-1 w-full'>
-                <label>Book Type</label>
+                <label className="text-sm font-medium text-gray-700">Book Type</label>
                 <select
-                    className='h-10 px-2 border border-gray-300 rounded-md'
+                    className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
                     value={metadata.fileType}
                     onChange={(e) => setMetadata({ ...metadata, fileType: e.target.value as UploadBookRequest['metadata']['fileType'] })}
                 >
@@ -172,44 +172,40 @@ export function UploadBook({ onUploadComplete }: UploadBookProps) {
                     <option value="physical">Physical</option>
                 </select>
             </div>
+
             {metadata.fileType !== 'physical' ? (
                 <div className='flex flex-col gap-1 w-full'>
-                    <label>File</label>
+                    <label className="text-sm font-medium text-gray-700">File</label>
                     <input
                         ref={fileInputRef}
-                        className='h-10 px-2 border border-gray-300 rounded-md'
+                        className='h-10 px-2 border border-gray-300 rounded-md py-1 text-sm text-gray-900'
                         type="file"
                         accept=".epub,.pdf,.acsm"
                         onChange={(e) => {
                             const selectedFile = e.target.files?.[0];
-                            if (selectedFile) {
-                                handleFileChange(selectedFile);
-                            }
+                            if (selectedFile) handleFileChange(selectedFile);
                         }}
                     />
-                    {extracting && (
-                        <p className="text-sm text-blue-600 mt-1">Extracting metadata...</p>
-                    )}
+                    {extracting && <p className="text-sm text-blue-600 mt-1">Extracting metadata...</p>}
                 </div>
-            ) : <div className='flex flex-col gap-1 w-full'>
-                <label>Location</label>
-                <input
-                    className='h-10 px-2 border border-gray-300 rounded-md'
-                    type="text"
-                    value={metadata.location || ''}
-                    onChange={(e) => setMetadata({ ...metadata, location: e.target.value })}
-                    required
-                />
-            </div>}
+            ) : (
+                <div className='flex flex-col gap-1 w-full'>
+                    <label className="text-sm font-medium text-gray-700">Location</label>
+                    <input
+                        className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
+                        type="text"
+                        value={metadata.location || ''}
+                        onChange={(e) => setMetadata({ ...metadata, location: e.target.value })}
+                        required
+                    />
+                </div>
+            )}
 
             {/* Custom Cover Upload Section */}
             <div className='flex flex-col gap-2 w-full p-4 border border-gray-200 rounded-lg bg-gray-50'>
-                <label className="font-semibold text-gray-800 flex items-center gap-2">
-                    <ImageSquare size={20} /> Cover Image (Optional)
+                <label className="font-semibold text-gray-800 flex items-center gap-2 text-sm">
+                    <ImageSquare size={20} /> Cover Image (Saved to images/)
                 </label>
-                <p className="text-xs text-gray-500 -mt-1">
-                    Upload a custom cover or take a picture with your camera!
-                </p>
                 <div className="flex flex-wrap gap-3 items-center">
                     <button
                         type="button"
@@ -269,83 +265,79 @@ export function UploadBook({ onUploadComplete }: UploadBookProps) {
                 </div>
                 {customCoverPreview && (
                     <div className="mt-2 border border-gray-200 rounded overflow-hidden w-32 h-48 bg-gray-100">
-                        <img
-                            src={customCoverPreview}
-                            alt="Custom cover preview"
-                            className="w-full h-full object-cover"
-                        />
+                        <img src={customCoverPreview} alt="Custom cover preview" className="w-full h-full object-cover" />
                     </div>
                 )}
             </div>
 
             <div className='flex flex-row gap-4'>
                 <div className='flex flex-col gap-1 w-full'>
-                    <label>Title</label>
+                    <label className="text-sm font-medium text-gray-700">Title</label>
                     <input
-                        className='h-10 px-2 border border-gray-300 rounded-md'
+                        className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
                         type="text"
                         value={metadata.title}
                         onChange={(e) => setMetadata({ ...metadata, title: e.target.value })}
                         required
                     />
                 </div>
-
                 <div className='flex flex-col gap-1 w-full'>
-                    <label>Author</label>
+                    <label className="text-sm font-medium text-gray-700">Author</label>
                     <input
-                        className='h-10 px-2 border border-gray-300 rounded-md'
+                        className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
                         type="text"
                         value={metadata.author}
                         onChange={(e) => setMetadata({ ...metadata, author: e.target.value })}
                         required
                     />
-                </div></div>
+                </div>
+            </div>
 
             <div className='flex flex-row gap-4'>
                 <div className='flex flex-col gap-1 w-full'>
-                    <label>ISBN</label>
+                    <label className="text-sm font-medium text-gray-700">ISBN</label>
                     <input
-                        className='h-10 px-2 border border-gray-300 rounded-md'
+                        className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
                         type="text"
                         value={metadata.isbn || ''}
                         onChange={(e) => setMetadata({ ...metadata, isbn: e.target.value })}
                     />
                 </div>
-
                 <div className='flex flex-col gap-1 w-full'>
-                    <label>Publisher</label>
+                    <label className="text-sm font-medium text-gray-700">Publisher</label>
                     <input
-                        className='h-10 px-2 border border-gray-300 rounded-md'
+                        className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
                         type="text"
                         value={metadata.publisher || ''}
                         onChange={(e) => setMetadata({ ...metadata, publisher: e.target.value })}
                     />
                 </div>
             </div>
+
             <div className='flex flex-col gap-1 w-full'>
-                <label>Description</label>
+                <label className="text-sm font-medium text-gray-700">Description</label>
                 <textarea
-                    className='h-16 px-2 border border-gray-300 rounded-md'
+                    className='h-16 p-2 border border-gray-300 rounded-md text-gray-900 text-sm'
                     value={metadata.description || ''}
                     onChange={(e) => setMetadata({ ...metadata, description: e.target.value })}
                     rows={3}
                 />
             </div>
+
             <div className='flex flex-row gap-4'>
                 <div className='flex flex-col gap-1 w-full'>
-                    <label>Publication Date</label>
+                    <label className="text-sm font-medium text-gray-700">Publication Date</label>
                     <input
-                        className='h-10 px-2 border border-gray-300 rounded-md'
+                        className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
                         type="date"
                         value={metadata.publicationDate || ''}
                         onChange={(e) => setMetadata({ ...metadata, publicationDate: e.target.value })}
-                        placeholder="YYYY-MM-DD"
                     />
                 </div>
                 <div className='flex flex-col gap-1 w-full'>
-                    <label>Language</label>
+                    <label className="text-sm font-medium text-gray-700">Language</label>
                     <select
-                        className='h-10 px-2 border border-gray-300 rounded-md'
+                        className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
                         value={metadata.language || ''}
                         onChange={(e) => setMetadata({ ...metadata, language: e.target.value })}
                     >
@@ -358,20 +350,21 @@ export function UploadBook({ onUploadComplete }: UploadBookProps) {
                     </select>
                 </div>
                 <div className='flex flex-col gap-1 w-full'>
-                    <label>Pages</label>
+                    <label className="text-sm font-medium text-gray-700">Pages</label>
                     <input
-                        className='h-10 px-2 border border-gray-300 rounded-md'
+                        className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
                         type="number"
                         value={metadata.pages || ''}
                         onChange={(e) => setMetadata({ ...metadata, pages: Number(e.target.value) })}
                     />
                 </div>
             </div>
+
             <div className='flex flex-row gap-4'>
                 <div className='flex flex-col gap-1 w-full'>
-                    <label>Genres</label>
+                    <label className="text-sm font-medium text-gray-700">Genres</label>
                     <input
-                        className='h-10 px-2 border border-gray-300 rounded-md'
+                        className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
                         type="text"
                         value={metadata.genres?.join(', ') || ''}
                         onChange={(e) => setMetadata({ ...metadata, genres: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
@@ -379,9 +372,9 @@ export function UploadBook({ onUploadComplete }: UploadBookProps) {
                     />
                 </div>
                 <div className='flex flex-col gap-1 w-full'>
-                    <label>Collections</label>
+                    <label className="text-sm font-medium text-gray-700">Collections</label>
                     <input
-                        className='h-10 px-2 border border-gray-300 rounded-md'
+                        className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
                         type="text"
                         value={metadata.collections?.join(', ') || ''}
                         onChange={(e) => setMetadata({ ...metadata, collections: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
@@ -389,60 +382,43 @@ export function UploadBook({ onUploadComplete }: UploadBookProps) {
                     />
                 </div>
             </div>
-            <div className='flex flex-row w-full gap-4'>
-                <button className="cursor-pointer bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors" type="submit" disabled={uploading}>
-                    {uploading ? 'Uploading...' : 'Upload Book'}
-                </button></div>
 
+            <div className='flex flex-row w-full gap-4 pt-2'>
+                <button
+                    className="cursor-pointer bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors font-medium text-sm disabled:opacity-50"
+                    type="submit"
+                    disabled={uploading}
+                >
+                    {uploading ? 'Uploading...' : 'Upload Book'}
+                </button>
+            </div>
 
             {isCameraModalOpen && (
-                <div
-                    className="fixed inset-0 bg-black/70 z-[70] flex items-center justify-center p-4"
-                    onClick={() => setIsCameraModalOpen(false)}
-                >
-                    <div
-                        className="bg-white rounded-lg w-full max-w-lg overflow-hidden shadow-2xl"
-                        onClick={(e) => e.stopPropagation()}
-                    >
+                <div className="fixed inset-0 bg-black/70 z-[70] flex items-center justify-center p-4" onClick={() => setIsCameraModalOpen(false)}>
+                    <div className="bg-white rounded-lg w-full max-w-lg overflow-hidden shadow-2xl" onClick={(e) => e.stopPropagation()}>
                         <div className="p-4 border-b border-gray-200 flex items-center justify-between">
                             <h3 className="font-semibold text-gray-900 flex items-center gap-2">
                                 <CameraIcon size={18} /> Take Cover Photo
                             </h3>
-                            <button
-                                onClick={() => setIsCameraModalOpen(false)}
-                                className="cursor-pointer p-1.5 rounded hover:bg-gray-100 text-gray-600"
-                            >
+                            <button onClick={() => setIsCameraModalOpen(false)} className="cursor-pointer p-1.5 rounded hover:bg-gray-100 text-gray-600">
                                 <XIcon size={18} />
                             </button>
                         </div>
                         <div className="bg-black aspect-[3/4] max-h-[70vh] flex items-center justify-center">
-                            <video
-                                ref={videoRef}
-                                autoPlay
-                                playsInline
-                                muted
-                                className="w-full h-full object-cover"
-                            />
+                            <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
                         </div>
                         <canvas ref={canvasRef} className="hidden" />
                         <div className="p-4 flex gap-3 justify-center">
-                            <button
-                                onClick={() => setIsCameraModalOpen(false)}
-                                className="cursor-pointer px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
-                            >
+                            <button onClick={() => setIsCameraModalOpen(false)} className="cursor-pointer px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors">
                                 Cancel
                             </button>
-                            <button
-                                onClick={captureCameraPhoto}
-                                className="cursor-pointer px-6 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 transition-colors font-medium"
-                            >
+                            <button onClick={captureCameraPhoto} className="cursor-pointer px-6 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 transition-colors font-medium">
                                 📸 Capture
                             </button>
                         </div>
                     </div>
                 </div>
             )}
-            )
         </form>
-    )
+    );
 }

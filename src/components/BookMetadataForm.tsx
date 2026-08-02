@@ -125,23 +125,7 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
       console.error('Validation errors:', parsed.error);
       return;
     }
-    const dataToSubmit = {
-      ...parsed.data,
-      collections: parsed.data.collections || [],
-      genres: parsed.data.genres || [],
-    };
-    try {
-      await onSubmit(dataToSubmit);
-      onCancel();
-    } catch (error) {
-      console.error('Error updating book:', error);
-    }
-  };
-
-  const onFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    handleSubmit(handleFormSubmit)(e);
+    await onSubmit(parsed.data);
   };
 
   const currentYear = new Date().getFullYear();
@@ -149,15 +133,15 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
 
   if (!isEditing) {
     return (
-      <div className="space-y-4  text-sm">
+      <div className="space-y-4 text-sm">
         {book.description && (
-
           <p className="text-gray-900 leading-relaxed">
             {book.description.length > 200 && !isDescriptionExpanded
               ? `${book.description.substring(0, 200)}...`
               : book.description}
             {book.description.length > 200 && (
               <button
+                type="button"
                 onClick={() => setIsDescriptionExpanded(!isDescriptionExpanded)}
                 className="cursor-pointer text-blue-500 hover:underline ml-1"
               >
@@ -166,8 +150,22 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
             )}
           </p>
         )}
+        {book.genres && book.genres.length > 0 && (
+          <div>
+            <span className="font-medium text-gray-500">Genres</span>
+            <div className="flex flex-wrap gap-1.5 mt-1.5">
+              {book.genres.map((genre, index) => (
+                <span
+                  key={index}
+                  className="bg-blue-100 text-blue-800 text-xs px-2.5 py-0.5 rounded-full"
+                >
+                  {genre.trim()}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-4">
-
           {book.publisher && (
             <div>
               <span className="font-medium text-gray-500">Publisher</span>
@@ -180,7 +178,6 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
               <p className="text-gray-900">{displayPublicationYear}</p>
             </div>
           )}
-
         </div>
         <div className="grid grid-cols-3 gap-4">
           {book.language && (
@@ -204,29 +201,15 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
             </div>
           )}
         </div>
-        {book.genres && book.genres.length > 0 && (
-          <div>
-            <span className="font-medium text-gray-500">Genres</span>
-            <div className="flex flex-wrap gap-2 mt-2">
-              {book.genres.map((genre, index) => (
-                <span
-                  key={index}
-                  className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full"
-                >
-                  {genre.trim()}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
+        
         {book.collections && book.collections.length > 0 && (
           <div>
             <span className="font-medium text-gray-500">Collections</span>
-            <div className="flex flex-wrap gap-2 mt-2">
+            <div className="flex flex-wrap gap-1.5 mt-1.5">
               {book.collections.map((collection, index) => (
                 <span
                   key={index}
-                  className="bg-green-100 text-green-800 text-sm px-3 py-1 rounded-full"
+                  className="bg-green-100 text-green-800 text-xs px-2.5 py-0.5 rounded-full"
                 >
                   {collection}
                 </span>
@@ -239,89 +222,70 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
   }
 
   return (
-    <form onSubmit={onFormSubmit} noValidate action="" className="space-y-4 mb-4">
-      <div className="grid grid-cols-2 gap-4">
+    <form onSubmit={handleSubmit(handleFormSubmit)} noValidate className="space-y-4 my-2">
+      <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Title
-          </label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Title</label>
           <input
             {...register('title')}
-            className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+            className="w-full h-9 px-2.5 border border-gray-300 rounded-md text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
-          {errors.title && (
-            <p className="text-red-500 text-sm mt-1">{errors.title.message}</p>
-          )}
+          {errors.title && <p className="text-red-500 text-xs mt-0.5">{errors.title.message}</p>}
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Author
-          </label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Author</label>
           <input
             {...register('author')}
-            className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+            className="w-full h-9 px-2.5 border border-gray-300 rounded-md text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
-          {errors.author && (
-            <p className="text-red-500 text-sm mt-1">{errors.author.message}</p>
-          )}
+          {errors.author && <p className="text-red-500 text-xs mt-0.5">{errors.author.message}</p>}
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            ISBN
-          </label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">ISBN</label>
           <input
             {...register('isbn')}
-            className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+            className="w-full h-9 px-2.5 border border-gray-300 rounded-md text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Publisher
-          </label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Publisher</label>
           <input
             {...register('publisher')}
-            className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+            className="w-full h-9 px-2.5 border border-gray-300 rounded-md text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Description
-        </label>
+        <label className="block text-xs font-medium text-gray-700 mb-1">Description</label>
         <textarea
           {...register('description')}
           rows={3}
-          className="w-full h-20 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+          className="w-full p-2 border border-gray-300 rounded-md text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
         />
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-3">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Publication Year
-          </label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Publication Year</label>
           <input
             {...register('publicationDate')}
             type="number"
             min={1000}
             max={currentYear}
-            step={1}
             placeholder="e.g. 2024"
-            className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+            className="w-full h-9 px-2.5 border border-gray-300 rounded-md text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Language
-          </label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Language</label>
           <select
             {...register('language')}
-            className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+            className="w-full h-9 px-2 border border-gray-300 rounded-md text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
             <option value="">Select...</option>
             <option value="pt">Portuguese</option>
@@ -333,22 +297,18 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Pages
-          </label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Pages</label>
           <input
             {...register('pages', { valueAsNumber: true })}
             type="number"
             min={1}
-            className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+            className="w-full h-9 px-2.5 border border-gray-300 rounded-md text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Genres
-        </label>
+        <label className="block text-xs font-medium text-gray-700 mb-1">Genres</label>
         <Controller
           name="genres"
           control={control}
@@ -360,45 +320,29 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
                 field.onChange(v);
                 setValue('genres', v, { shouldDirty: true });
               }}
-              placeholder="Type to search or add a genre…"
+              placeholder="Search or add a genre…"
               creatable
               disabled={isSubmitting}
             />
           )}
         />
-        <p className="text-xs text-gray-500 mt-1">
-          Press Enter or comma to add a new genre; pick existing from the dropdown.
-        </p>
       </div>
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Notes
-        </label>
-        <textarea
-          {...register('notes')}
-          rows={2}
-          className="w-full h-20 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
-        />
-      </div>
-
-      <div className="flex justify-end items-center pt-2 border-t border-gray-200">
-        <div className="space-x-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="cursor-pointer text-sm px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="cursor-pointer text-sm px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-          >
-            {isSubmitting ? 'Saving...' : 'Save'}
-          </button>
-        </div>
+      <div className="flex justify-end items-center gap-2 pt-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="cursor-pointer text-xs px-3 py-1.5 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={isSubmitting}
+          className="cursor-pointer text-xs px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50"
+        >
+          {isSubmitting ? 'Saving...' : 'Save'}
+        </button>
       </div>
     </form>
   );
