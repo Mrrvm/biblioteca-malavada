@@ -178,7 +178,7 @@ function MultiSelect({ options, selected, onChange, placeholder = "Select option
                     onChange={() => { }}
                     className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 mr-2"
                   />
-                  <span>{option}</span>
+                  <span className='text-gray-800'>{option}</span>
                 </div>
               </div>
             ))
