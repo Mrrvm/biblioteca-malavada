@@ -437,11 +437,7 @@ export default function Profile() {
                           <div className="border-t border-gray-100 bg-gray-50/50 p-5 rounded-b-xl">
                             {books.length === 0 ? (
                               <div className="text-center py-8 text-sm text-gray-500">
-                                <div className="text-3xl mb-2">📖</div>
                                 No books in this collection yet.
-                                <div className="mt-2 text-xs text-gray-400">
-                                  Go to the library, open a book, and add it to "{collection.name}" from the details drawer.
-                                </div>
                               </div>
                             ) : (
                               <BookGrid books={books} onBookClick={handleBookClick} />
