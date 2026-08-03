@@ -28,18 +28,16 @@ export async function compressPDFIfNeeded(
     };
   }
 
-})`);
-
   try {
     // Load the PDF document
     const pdfDoc = await PDFDocument.load(fileBuffer);
-    
+
     // Get all pages
     const pages = pdfDoc.getPages();
-    
+
     // Optional: You can add more compression techniques here
     // For example, you could reduce image quality or remove metadata
-    
+
     // Save the compressed PDF
     const compressedPdfBytes = await pdfDoc.save({
       useObjectStreams: true,
@@ -50,26 +48,25 @@ export async function compressPDFIfNeeded(
     const compressedSize = compressedPdfBytes.length;
     const compressionRatio = compressedSize / originalSize;
 
-} → ${formatFileSize(compressedSize)} (${(compressionRatio * 100).toFixed(1)}%)`);
 
-return {
-  compressed: true,
-  buffer: compressedPdfBytes,
-  originalSize,
-  compressedSize,
-  compressionRatio
-};
+    return {
+      compressed: true,
+      buffer: compressedPdfBytes,
+      originalSize,
+      compressedSize,
+      compressionRatio
+    };
   } catch (error) {
-  console.error('PDF compression failed:', error);
-  // If compression fails, return the original file
-  return {
-    compressed: false,
-    buffer: new Uint8Array(fileBuffer),
-    originalSize,
-    compressedSize: originalSize,
-    compressionRatio: 1
-  };
-}
+    console.error('PDF compression failed:', error);
+    // If compression fails, return the original file
+    return {
+      compressed: false,
+      buffer: new Uint8Array(fileBuffer),
+      originalSize,
+      compressedSize: originalSize,
+      compressionRatio: 1
+    };
+  }
 }
 
 function formatFileSize(bytes: number): string {
