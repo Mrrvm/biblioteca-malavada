@@ -221,15 +221,22 @@ export default function BookDetailDrawer({
                     <div className='flex flex-col gap-4 flex-grow overflow-y-auto mb-4'>
 
                         {!isEditingMetadata && (
-                            <div className='flex flex-row items-start gap-4'>
-                                {effectiveCover && (
-                                    <img
-                                        style={{ aspectRatio: '3 / 4' }}
-                                        src={effectiveCover}
-                                        alt={book.title}
-                                        className="border border-gray-300 rounded-md object-cover max-h-[300px] w-auto"
+                            <div className='flex flex-col md:flex-row items-start gap-4'>
+                                <div className='w-full flex flex-row justify-between'>
+                                    {effectiveCover && (
+                                        <img
+                                            style={{ aspectRatio: '3 / 4' }}
+                                            src={effectiveCover}
+                                            alt={book.title}
+                                            className="border border-gray-300 rounded-md object-cover max-h-[300px] w-auto"
+                                        />
+                                    )}
+                                    <XIcon
+                                        onClick={() => { onClose(); }}
+                                        className="flex md:hidden cursor-pointer w-5 h-5 text-gray-600 hover:text-red-600 transition-colors"
                                     />
-                                )}
+                                </div>
+
                                 <div className='flex flex-col h-full justify-between gap-3'>
                                     <div>
                                         <div className="text-lg font-bold text-gray-900 leading-tight">{book.title}</div>
