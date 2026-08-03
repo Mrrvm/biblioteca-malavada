@@ -30,7 +30,8 @@ export async function GET(request: NextRequest) {
             { fileId, alt: 'media' },
             { responseType: 'arraybuffer' }
         );
-        const buffer = Buffer.from(response.data);
+        // response.data is an ArrayBuffer; cast it to avoid TypeScript errors
+        const buffer = Buffer.from(response.data as ArrayBuffer);
         const contentType = response.headers['content-type'] || 'image/jpeg';
         return new NextResponse(buffer, {
             headers: {

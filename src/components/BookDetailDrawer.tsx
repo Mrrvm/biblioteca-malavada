@@ -230,7 +230,7 @@ export default function BookDetailDrawer({
                                         className="border border-gray-300 rounded-md object-cover max-h-[300px] w-auto"
                                     />
                                 )}
-                                <div className='flex flex-col h-full justify-between'>
+                                <div className='flex flex-col h-full justify-between gap-3'>
                                     <div>
                                         <div className="text-lg font-bold text-gray-900 leading-tight">{book.title}</div>
                                         <p className="text-sm text-gray-600 mt-1">{book.author}</p>
@@ -441,7 +441,7 @@ export default function BookDetailDrawer({
                                 Cancel
                             </button>
                             <button onClick={captureCameraPhoto} className="cursor-pointer px-6 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 transition-colors font-medium">
-                                📸 Capture
+                                Capture
                             </button>
                         </div>
                     </div>

@@ -13,6 +13,23 @@ interface UploadBookProps {
     genresOptions?: string[];
 }
 
+// Form state with pages as string to avoid controlled/uncontrolled issues
+interface FormMetadata {
+    title: string;
+    author: string;
+    fileType: UploadBookRequest['metadata']['fileType'];
+    collections: string[];
+    genres: string[];
+    publicationDate: string;
+    isbn: string;
+    publisher: string;
+    description: string;
+    pages: string; // stored as string for the input
+    language: string;
+    notes: string;
+    date: string;
+}
+
 export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOptions = [] }: UploadBookProps) {
     const [uploading, setUploading] = useState(false);
     const [extracting, setExtracting] = useState(false);
@@ -29,7 +46,7 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
 
-    const [metadata, setMetadata] = useState<UploadBookRequest['metadata'] & { pages: string }>({
+    const [metadata, setMetadata] = useState<FormMetadata>({
         title: '',
         author: '',
         fileType: 'epub',
@@ -140,16 +157,29 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
         e.preventDefault();
         setUploading(true);
 
+        // Convert pages from string to number (or undefined)
         const pagesNum = metadata.pages ? Number(metadata.pages) : undefined;
+
+        // Build the metadata object expected by the API
+        const apiMetadata: UploadBookRequest['metadata'] = {
+            title: metadata.title,
+            author: metadata.author,
+            fileType: metadata.fileType,
+            collections: metadata.collections,
+            genres: metadata.genres,
+            publicationDate: metadata.publicationDate || undefined,
+            isbn: metadata.isbn || undefined,
+            publisher: metadata.publisher || undefined,
+            description: metadata.description || undefined,
+            pages: pagesNum,
+            language: metadata.language || undefined,
+            notes: metadata.notes || undefined,
+            date: metadata.date || undefined,
+        };
 
         try {
             const newBook = await bookApi.uploadBook(
-                {
-                    metadata: {
-                        ...metadata,
-                        pages: pagesNum,
-                    }
-                },
+                { metadata: apiMetadata },
                 metadata.fileType === 'physical' ? undefined : file!,
                 customCover || undefined
             );
@@ -216,7 +246,6 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                     {extracting && <p className="text-sm text-blue-600 mt-1">Extracting metadata...</p>}
                 </div>
             ) : (
-                // Physical books – we removed the Location field
                 <div className='flex flex-col gap-1 w-full'>
                     <p className="text-sm text-gray-500">Physical book – no file required.</p>
                 </div>
@@ -238,7 +267,7 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                     <button
                         type="button"
                         onClick={() => {
-                            if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+                            if (typeof navigator !== 'undefined' && navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function') {
                                 setIsCameraModalOpen(true);
                             } else {
                                 cameraInputRef.current?.click();
@@ -437,7 +466,7 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                                 Cancel
                             </button>
                             <button onClick={captureCameraPhoto} className="cursor-pointer px-6 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 transition-colors font-medium">
-                                📸 Capture
+                                Capture
                             </button>
                         </div>
                     </div>

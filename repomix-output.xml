@@ -2279,1340 +2279,6 @@ export async function DELETE(request: NextRequest) {
 }
 </file>
 
-<file path="src/app/profile/page.tsx">
-'use client';
-
-import { useState, useEffect, useMemo } from 'react';
-import { useSession, signOut } from 'next-auth/react';
-import { useRouter } from 'next/navigation'; // <-- added
-import { bookApi } from '@/lib/api/books';
-import { AcquiredBookNote, BookMetadata, LibraryCollection, LibraryData, UserBookState } from '@/app/types/book';
-import BookGrid from '@/components/BookGrid';
-import BookDetailDrawer from '@/components/BookDetailDrawer';
-import { ArrowLeft, CaretDown, CaretUp, PencilSimple, Plus, TrashSimple, X } from '@phosphor-icons/react';
-
-type TabKey = 'collections' | 'toAcquire' | 'readBooks';
-
-export default function Profile() {
-  const { data: session } = useSession();
-  const router = useRouter(); // <-- added
-  const [libraryData, setLibraryData] = useState<LibraryData>({ books: [], notes: [], userBookStates: [], collections: [], booksToAcquire: [] });
-  const [loading, setLoading] = useState(true);
-  const [selectedBook, setSelectedBook] = useState<BookMetadata | null>(null);
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabKey>('collections');
-
-  const [showCreateCollection, setShowCreateCollection] = useState(false);
-  const [editingCollection, setEditingCollection] = useState<LibraryCollection | null>(null);
-  const [collectionForm, setCollectionForm] = useState({ name: '', description: '' });
-  const [expandedCollectionId, setExpandedCollectionId] = useState<string | null>(null);
-  const [isSubmittingCollection, setIsSubmittingCollection] = useState(false);
-
-  const [showAddAcquire, setShowAddAcquire] = useState(false);
-  const [editingAcquire, setEditingAcquire] = useState<AcquiredBookNote | null>(null);
-  const [acquireForm, setAcquireForm] = useState({ title: '', author: '', isbn: '', notes: '', priority: 'medium' as 'low' | 'medium' | 'high' });
-  const [isSubmittingAcquire, setIsSubmittingAcquire] = useState(false);
-
-  useEffect(() => {
-    loadLibraryData();
-  }, []);
-
-  const loadLibraryData = async () => {
-    try {
-      setLoading(true);
-      const data = await bookApi.getLibraryData();
-      setLibraryData(data);
-    } catch (err) {
-      console.error('Error loading library data:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // --- Local state update helpers ---
-  const updateBookInState = (updatedBook: BookMetadata) => {
-    setLibraryData(prev => ({
-      ...prev,
-      books: prev.books.map(b => b.id === updatedBook.id ? updatedBook : b),
-    }));
-  };
-
-  const updateUserBookStateInState = (updatedState: UserBookState) => {
-    setLibraryData(prev => ({
-      ...prev,
-      userBookStates: prev.userBookStates.map(s =>
-        s.userId === updatedState.userId && s.bookId === updatedState.bookId ? updatedState : s
-      ),
-    }));
-  };
-
-  const updateCollectionInState = (updatedCollection: LibraryCollection) => {
-    setLibraryData(prev => ({
-      ...prev,
-      collections: prev.collections.map(c => c.id === updatedCollection.id ? updatedCollection : c),
-    }));
-  };
-
-  const addCollectionInState = (newCollection: LibraryCollection) => {
-    setLibraryData(prev => ({
-      ...prev,
-      collections: [...prev.collections, newCollection],
-    }));
-  };
-
-  const deleteCollectionInState = (collectionId: string) => {
-    setLibraryData(prev => ({
-      ...prev,
-      collections: prev.collections.filter(c => c.id !== collectionId),
-    }));
-  };
-
-  const addAcquireInState = (newItem: AcquiredBookNote) => {
-    setLibraryData(prev => ({
-      ...prev,
-      booksToAcquire: [...prev.booksToAcquire, newItem],
-    }));
-  };
-
-  const updateAcquireInState = (updatedItem: AcquiredBookNote) => {
-    setLibraryData(prev => ({
-      ...prev,
-      booksToAcquire: prev.booksToAcquire.map(item => item.id === updatedItem.id ? updatedItem : item),
-    }));
-  };
-
-  const deleteAcquireInState = (itemId: string) => {
-    setLibraryData(prev => ({
-      ...prev,
-      booksToAcquire: prev.booksToAcquire.filter(item => item.id !== itemId),
-    }));
-  };
-  // --- end helpers ---
-
-  const readBooks = useMemo(() => {
-    if (!session?.user?.id) return [];
-    const userReadStates = libraryData.userBookStates.filter(
-      state => state.userId === session.user.id && state.isRead
-    );
-    // Sort by readAt descending (most recent first)
-    return userReadStates
-      .sort((a, b) => {
-        if (!a.readAt) return 1;
-        if (!b.readAt) return -1;
-        return new Date(b.readAt).getTime() - new Date(a.readAt).getTime();
-      })
-      .map(state => {
-        const book = libraryData.books.find(book => book.id === state.bookId);
-        return book ? { ...book, readAt: state.readAt } : null;
-      })
-      .filter(Boolean) as (BookMetadata & { readAt?: string })[];
-  }, [libraryData, session]);
-
-  const myCollections = useMemo(() => {
-    if (!session?.user?.id) return libraryData.collections;
-    return libraryData.collections.sort((a, b) => {
-      const aIsMine = a.createdByUserId === session.user.id ? 0 : 1;
-      const bIsMine = b.createdByUserId === session.user.id ? 0 : 1;
-      if (aIsMine !== bIsMine) return aIsMine - bIsMine;
-      return a.name.localeCompare(b.name);
-    });
-  }, [libraryData.collections, session]);
-
-  const booksForCollection = (collectionName: string) => {
-    return libraryData.books.filter(book => book.collections?.includes(collectionName));
-  };
-
-  const uniqueGenres = useMemo(() => {
-    const genres = new Set<string>();
-    libraryData.books.forEach(book => book.genres?.forEach(genre => genres.add(genre)));
-    return Array.from(genres).sort();
-  }, [libraryData.books]);
-
-  const booksToAcquire = useMemo(() => {
-    const mine = session?.user?.id
-      ? libraryData.booksToAcquire.filter(b => b.userId === session.user.id)
-      : libraryData.booksToAcquire;
-    const priorityOrder = { high: 0, medium: 1, low: 2 } as const;
-    return [...mine].sort((a, b) => {
-      const pa = priorityOrder[a.priority || 'medium'] ?? 1;
-      const pb = priorityOrder[b.priority || 'medium'] ?? 1;
-      if (pa !== pb) return pa - pb;
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    });
-  }, [libraryData.booksToAcquire, session]);
-
-  const priorityStyles = {
-    high: 'bg-red-100 text-red-800 border-red-200',
-    medium: 'bg-amber-100 text-amber-800 border-amber-200',
-    low: 'bg-blue-100 text-blue-800 border-blue-200',
-  };
-
-  const handleBookClick = (book: BookMetadata) => {
-    setSelectedBook(book);
-    setIsDrawerOpen(true);
-  };
-
-  const handleCloseDrawer = () => {
-    setIsDrawerOpen(false);
-    setSelectedBook(null);
-  };
-
-  const handleReadBook = async (book: BookMetadata) => {
-    if (book.fileType === 'physical') {
-      console.log('Viewing physical book details:', book);
-    } else {
-      try {
-        const downloadUrl = await bookApi.downloadBook(book.id);
-        window.open(downloadUrl, '_blank');
-      } catch (err) {
-        console.error('Error downloading book:', err);
-        alert('Failed to open book');
-      }
-    }
-  };
-
-  const openCreateCollection = () => {
-    setEditingCollection(null);
-    setCollectionForm({ name: '', description: '' });
-    setShowCreateCollection(true);
-  };
-
-  const openEditCollection = (c: LibraryCollection) => {
-    setEditingCollection(c);
-    setCollectionForm({ name: c.name, description: c.description || '' });
-    setShowCreateCollection(true);
-  };
-
-  const submitCollection = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!collectionForm.name.trim()) return;
-    setIsSubmittingCollection(true);
-    try {
-      if (editingCollection) {
-        const updated = await bookApi.updateCollection(editingCollection.id, {
-          name: collectionForm.name.trim(),
-          description: collectionForm.description.trim() || undefined,
-        });
-        updateCollectionInState(updated);
-      } else {
-        const created = await bookApi.createCollection(
-          collectionForm.name.trim(),
-          collectionForm.description.trim() || undefined
-        );
-        addCollectionInState(created);
-      }
-      setShowCreateCollection(false);
-      setEditingCollection(null);
-    } catch (err) {
-      console.error('Failed to save collection:', err);
-      alert('Failed to save collection');
-    } finally {
-      setIsSubmittingCollection(false);
-    }
-  };
-
-  const deleteCollection = async (c: LibraryCollection) => {
-    if (!confirm(`Delete collection "${c.name}"? Books will NOT be deleted, just removed from this collection.`)) return;
-    try {
-      await bookApi.deleteCollection(c.id);
-      deleteCollectionInState(c.id);
-      if (expandedCollectionId === c.id) setExpandedCollectionId(null);
-    } catch (err) {
-      console.error('Failed to delete collection:', err);
-      alert('Failed to delete collection');
-    }
-  };
-
-  const openAddAcquire = () => {
-    setEditingAcquire(null);
-    setAcquireForm({ title: '', author: '', isbn: '', notes: '', priority: 'medium' });
-    setShowAddAcquire(true);
-  };
-
-  const openEditAcquire = (item: AcquiredBookNote) => {
-    setEditingAcquire(item);
-    setAcquireForm({
-      title: item.title,
-      author: item.author || '',
-      isbn: item.isbn || '',
-      notes: item.notes || '',
-      priority: item.priority || 'medium',
-    });
-    setShowAddAcquire(true);
-  };
-
-  const submitAcquire = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!acquireForm.title.trim()) return;
-    setIsSubmittingAcquire(true);
-    try {
-      const payload = {
-        title: acquireForm.title.trim(),
-        author: acquireForm.author.trim() || undefined,
-        isbn: acquireForm.isbn.trim() || undefined,
-        notes: acquireForm.notes.trim() || undefined,
-        priority: acquireForm.priority,
-      };
-      if (editingAcquire) {
-        const updated = await bookApi.updateBookToAcquire(editingAcquire.id, payload);
-        updateAcquireInState(updated);
-      } else {
-        const created = await bookApi.addBookToAcquire(payload as any);
-        addAcquireInState(created);
-      }
-      setShowAddAcquire(false);
-      setEditingAcquire(null);
-    } catch (err) {
-      console.error('Failed to save book to acquire:', err);
-      alert('Failed to save');
-    } finally {
-      setIsSubmittingAcquire(false);
-    }
-  };
-
-  const deleteAcquire = async (item: AcquiredBookNote) => {
-    if (!confirm(`Remove "${item.title}" from your acquire list?`)) return;
-    try {
-      await bookApi.deleteBookToAcquire(item.id);
-      deleteAcquireInState(item.id);
-    } catch (err) {
-      console.error('Failed to delete:', err);
-      alert('Failed to delete');
-    }
-  };
-
-  // Handler for when a collection is created from the BookDetailDrawer
-  const handleCollectionCreated = (newCollection: LibraryCollection) => {
-    addCollectionInState(newCollection);
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
-
-  if (!session) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold mb-4">Please sign in to view your profile</h2>
-        </div>
-      </div>
-    );
-  }
-
-  const TabButton = ({ tab, label, count }: { tab: TabKey; label: string; count?: number }) => (
-    <button
-      onClick={() => setActiveTab(tab)}
-      className={`cursor-pointer px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeTab === tab
-        ? 'bg-blue-600 text-white shadow-sm'
-        : 'text-gray-600 hover:bg-gray-100'
-        }`}
-    >
-      {label}
-      {typeof count === 'number' && (
-        <span className={`ml-2 inline-flex items-center justify-center w-5 h-5 text-xs rounded-full ${activeTab === tab ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-700'
-          }`}>
-          {count}
-        </span>
-      )}
-    </button>
-  );
-
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200 p-4 sticky top-0 z-30">
-        <div className="max-w-7xl mx-auto flex items-center justify-between flex-wrap gap-4">
-          <div className="flex items-center gap-4">
-            <h1 className="text-xl font-bold text-gray-900">
-              <button
-                onClick={() => router.push('/')} // changed
-                className="cursor-pointer hover:text-blue-600 transition-colors"
-              >
-                biblioteca malavada
-              </button>
-            </h1>
-            <span className="text-gray-400">/</span>
-            <div className="flex items-center gap-3">
-              {session.user?.image && (
-                <img
-                  src={session.user.image}
-                  alt={session.user.name || 'User'}
-                  className="w-8 h-8 rounded-full border border-gray-200"
-                />
-              )}
-              <div>
-                <div className="text-sm font-semibold text-gray-900">{session.user?.name}</div>
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => router.push('/')} // changed
-              className="flex gap-1 items-center cursor-pointer bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 transition-colors text-xs"
-            >
-              <ArrowLeft size={12} />
-              Library
-            </button>
-            <button
-              onClick={() => signOut()}
-              className="text-xs cursor-pointer bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 transition-colors text-sm"
-            >
-              Sign out
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="flex-1 space-y-3 p-4">
-        <div className="pb-3 flex items-center gap-2 border-b border-gray-200 overflow-x-auto">
-          <TabButton tab="collections" label="All Collections" count={myCollections.length} />
-          <TabButton tab="toAcquire" label="Wishlist" count={booksToAcquire.length} />
-          <TabButton tab="readBooks" label="Read Books" count={readBooks.length} />
-        </div>
-
-        {activeTab === 'collections' && (
-          <>
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <div className="text-xl font-bold text-gray-900">All Collections</div>
-              <button
-                onClick={openCreateCollection}
-                className="text-xs cursor-pointer inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm font-medium shadow-sm"
-              >
-                <Plus size={12} /> New Collection
-              </button>
-            </div>
-
-            {myCollections.length === 0 ? (
-              <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
-                <button
-                  onClick={openCreateCollection}
-                  className="text-xs cursor-pointer inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm"
-                >
-                  <Plus size={12} /> Create First Collection
-                </button>
-              </div>
-            ) : (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {myCollections.map(collection => {
-                  const books = booksForCollection(collection.name);
-                  const isMine = collection.createdByUserId === session.user.id;
-                  const isExpanded = expandedCollectionId === collection.id;
-                  return (
-                    <div
-                      key={collection.id}
-                      className={`bg-white rounded-xl border transition-all ${isExpanded ? 'border-blue-300 ring-2 ring-blue-100 md:col-span-2 lg:col-span-3' : 'border-gray-200 hover:shadow-sm hover:border-gray-300'
-                        }`}
-                    >
-                      <div className="flex items-center justify-between gap-3 p-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <div onClick={() => setExpandedCollectionId(isExpanded ? null : collection.id)} className="cursor-pointer flex gap-2 items-center text-lg font-semibold text-gray-900 truncate">
-                              {!isExpanded ? <CaretDown size={16} /> : <CaretUp size={16} />}
-                              {collection.name}
-                            </div>
-                          </div>
-                          {collection.description && (
-                            <p className="text-sm text-gray-600 mt-1 line-clamp-2">{collection.description}</p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <div className="text-xs text-gray-500 p-1">
-                            {books.length} book{books.length !== 1 ? 's' : ''}
-                          </div>
-                          <button
-                            onClick={() => openEditCollection(collection)}
-                            className="cursor-pointer p-1 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
-                            title="Edit collection"
-                          >
-                            <PencilSimple size={16} />
-                          </button>
-                          <button
-                            onClick={() => deleteCollection(collection)}
-                            className="cursor-pointer p-1 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
-                            title="Delete collection"
-                          >
-                            <TrashSimple size={16} />
-                          </button>
-                        </div>
-                      </div>
-                      {
-                        isExpanded && (
-                          <div className="border-t border-gray-100 bg-gray-50/50 p-5 rounded-b-xl">
-                            {books.length === 0 ? (
-                              <div className="text-center py-8 text-sm text-gray-500">
-                                <div className="text-3xl mb-2">📖</div>
-                                No books in this collection yet.
-                                <div className="mt-2 text-xs text-gray-400">
-                                  Go to the library, open a book, and add it to "{collection.name}" from the details drawer.
-                                </div>
-                              </div>
-                            ) : (
-                              <BookGrid books={books} onBookClick={handleBookClick} />
-                            )}
-                          </div>
-                        )
-                      }
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </>
-        )}
-
-        {activeTab === 'toAcquire' && (
-          <>
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <div>
-                <h2 className="text-xl font-bold text-gray-900">Wishlist</h2>
-              </div>
-              <button
-                onClick={openAddAcquire}
-                className="text-xs cursor-pointer inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm font-medium shadow-sm"
-              >
-                <Plus size={12} /> Add Book
-              </button>
-            </div>
-
-            {booksToAcquire.length === 0 ? (
-              <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
-                <button
-                  onClick={openAddAcquire}
-                  className="text-xs cursor-pointer inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm"
-                >
-                  <Plus size={12} /> Add First Book
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {booksToAcquire.map(item => (
-                  <div
-                    key={item.id}
-                    className="bg-white rounded-lg border border-gray-200 p-4 flex flex-col sm:flex-row sm:items-start gap-4 hover:shadow-sm transition-shadow"
-                  >
-                    <div className="flex-shrink-0 pt-1">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 text-xs font-semibold rounded-full border capitalize ${priorityStyles[item.priority || 'medium']}`}>
-                        {item.priority || 'medium'}
-                      </span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-gray-900 leading-tight">{item.title}</h3>
-                      {item.author && (
-                        <div className="text-sm text-gray-600 mt-0.5">by {item.author}</div>
-                      )}
-                      {item.isbn && (
-                        <div className="text-xs text-gray-400 mt-1">ISBN: {item.isbn}</div>
-                      )}
-                      {item.notes && (
-                        <div className="mt-2 text-sm text-gray-700 bg-gray-50 border border-gray-100 rounded-md p-3 whitespace-pre-wrap">
-                          {item.notes}
-                        </div>
-                      )}
-                      <div className="mt-2 text-xs text-gray-400">
-                        Added {new Date(item.createdAt).toLocaleDateString()}
-                      </div>
-                    </div>
-                    <div className="flex-shrink-0 flex sm:flex-col items-center sm:items-end gap-2">
-                      <button
-                        onClick={() => openEditAcquire(item)}
-                        className="cursor-pointer p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
-                        title="Edit"
-                      >
-                        <PencilSimple size={16} />
-                      </button>
-                      <button
-                        onClick={() => deleteAcquire(item)}
-                        className="cursor-pointer p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
-                        title="Remove"
-                      >
-                        <TrashSimple size={16} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        {activeTab === 'readBooks' && (
-          <>
-            <div className="text-xl font-bold text-gray-900">Read Books</div>
-            {readBooks.length !== 0 ? (
-              <div className="space-y-3">
-                {readBooks.sort((a, b) => b?.readAt - a?.readAt).map(book => (
-                  <div
-                    key={book.id}
-                    className="bg-white rounded-lg border border-gray-200 p-4 flex items-start gap-4 hover:shadow-sm transition-shadow cursor-pointer"
-                    onClick={() => handleBookClick(book)}
-                  >
-                    <div className="w-16 h-24 flex-shrink-0 bg-gray-100 rounded overflow-hidden">
-                      {book.coverFileId ? (
-                        <img
-                          src={`/api/utils/cover-image?fileId=${book.coverFileId}`}
-                          alt={book.title}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <div className="w-full h-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-xs text-center p-1">
-                          {book.title.slice(0, 20)}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-gray-900">{book.title}</h3>
-                      <p className="text-sm text-gray-600">by {book.author}</p>
-                      {book.readAt && (
-                        <p className="text-xs text-gray-400 mt-1">
-                          Read on {new Date(book.readAt).toLocaleDateString()}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">No books read</h3>
-              </div>
-            )}
-          </>
-        )}
-      </main>
-
-      {
-        showCreateCollection && (
-          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => !isSubmittingCollection && setShowCreateCollection(false)}>
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-              <div className="p-4 py-3 border-b border-gray-100 flex items-center justify-between">
-                <h2 className="text-md font-semibold text-gray-900">
-                  {editingCollection ? 'Edit Collection' : 'Create New Collection'}
-                </h2>
-                <button
-                  onClick={() => setShowCreateCollection(false)}
-                  disabled={isSubmittingCollection}
-                  className="cursor-pointer p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors disabled:opacity-50"
-                >
-                  <X size={20} />
-                </button>
-              </div>
-              <form onSubmit={submitCollection} className="p-4 space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Collection Name <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    autoFocus
-                    value={collectionForm.name}
-                    onChange={e => setCollectionForm(f => ({ ...f, name: e.target.value }))}
-                    placeholder="e.g. Latin American Feminist Theory"
-                    className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    required
-                    maxLength={80}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Description <span className="text-gray-400 font-normal">(optional)</span>
-                  </label>
-                  <textarea
-                    value={collectionForm.description}
-                    onChange={e => setCollectionForm(f => ({ ...f, description: e.target.value }))}
-                    placeholder="What's this collection about? Who should read it?"
-                    rows={3}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                    maxLength={500}
-                  />
-                </div>
-                <div className="flex items-center justify-end gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setShowCreateCollection(false)}
-                    disabled={isSubmittingCollection}
-                    className="cursor-pointer px-4 py-2 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors disabled:opacity-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSubmittingCollection || !collectionForm.name.trim()}
-                    className="cursor-pointer px-5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors disabled:opacity-50 shadow-sm"
-                  >
-                    {isSubmittingCollection ? 'Saving…' : editingCollection ? 'Save Changes' : 'Create Collection'}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )
-      }
-
-      {
-        showAddAcquire && (
-          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => !isSubmittingAcquire && setShowAddAcquire(false)}>
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-              <div className="p-4 py-3 border-b border-gray-100 flex items-center justify-between">
-                <h2 className="text-md font-semibold text-gray-900">
-                  {editingAcquire ? 'Edit Book to Acquire' : 'Add Book to Acquire'}
-                </h2>
-                <button
-                  onClick={() => setShowAddAcquire(false)}
-                  disabled={isSubmittingAcquire}
-                  className="cursor-pointer p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors disabled:opacity-50"
-                >
-                  <X size={20} />
-                </button>
-              </div>
-              <form onSubmit={submitAcquire} className="p-4 space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Title <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    autoFocus
-                    value={acquireForm.title}
-                    onChange={e => setAcquireForm(f => ({ ...f, title: e.target.value }))}
-                    placeholder="Book title"
-                    className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    required
-                  />
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Author</label>
-                    <input
-                      value={acquireForm.author}
-                      onChange={e => setAcquireForm(f => ({ ...f, author: e.target.value }))}
-                      placeholder="e.g. bell hooks"
-                      className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">ISBN</label>
-                    <input
-                      value={acquireForm.isbn}
-                      onChange={e => setAcquireForm(f => ({ ...f, isbn: e.target.value }))}
-                      placeholder="Optional ID"
-                      className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(['low', 'medium', 'high'] as const).map(p => (
-                      <button
-                        key={p}
-                        type="button"
-                        onClick={() => setAcquireForm(f => ({ ...f, priority: p }))}
-                        className={`cursor-pointer py-2 rounded-md border text-sm font-medium capitalize transition-all ${acquireForm.priority === p
-                          ? priorityStyles[p] + ' ring-2 ring-offset-1'
-                          : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-                          }`}
-                      >
-                        {p === 'high'}{p === 'medium'}{p === 'low'}{p}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Notes <span className="text-gray-400 font-normal">(optional)</span>
-                  </label>
-                  <textarea
-                    value={acquireForm.notes}
-                    onChange={e => setAcquireForm(f => ({ ...f, notes: e.target.value }))}
-                    placeholder="Where did you hear about it? Which edition? Price? Bookseller name?"
-                    rows={3}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                  />
-                </div>
-                <div className="flex items-center justify-end gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setShowAddAcquire(false)}
-                    disabled={isSubmittingAcquire}
-                    className="cursor-pointer px-4 py-2 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors disabled:opacity-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSubmittingAcquire || !acquireForm.title.trim()}
-                    className="cursor-pointer px-5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors disabled:opacity-50 shadow-sm"
-                  >
-                    {isSubmittingAcquire ? 'Saving…' : editingAcquire ? 'Save Changes' : 'Add to List'}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )
-      }
-
-      <BookDetailDrawer
-        book={selectedBook}
-        isOpen={isDrawerOpen}
-        onClose={handleCloseDrawer}
-        onReadBook={handleReadBook}
-        onBookUpdated={updateBookInState}
-        notes={libraryData.notes.filter(note => note.bookId === (selectedBook?.id || ''))}
-        userBookState={session ? libraryData.userBookStates.find(state => state.bookId === (selectedBook?.id || '') && state.userId === session.user?.id) : undefined}
-        onUpdateUserBookState={session ? async (bookId, isRead, isInReadingList) => {
-          const updated = await bookApi.updateUserBookState(bookId, isRead, isInReadingList);
-          updateUserBookStateInState(updated);
-        } : undefined}
-        allCollections={libraryData.collections}
-        allGenres={uniqueGenres}
-        onCollectionCreated={handleCollectionCreated} // <-- added
-      />
-    </div >
-  );
-}
-</file>
-
-<file path="src/app/types/book.ts">
-export interface User {
-  id: string;
-  name: string | null;
-  email: string | null;
-  image: string | null;
-}
-
-export interface BookNote {
-  id: string;
-  userId: string;
-  bookId: string;
-  text?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface UserBookState {
-  userId: string;
-  bookId: string;
-  isRead: boolean;
-  isInReadingList: boolean;
-  readAt?: string;
-  addedToListAt?: string;
-}
-
-export interface LibraryCollection {
-  id: string;
-  name: string;
-  description?: string;
-  createdByUserId: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface AcquiredBookNote {
-  id: string;
-  userId: string;
-  title: string;
-  author?: string;
-  isbn?: string;
-  notes?: string;
-  priority?: 'low' | 'medium' | 'high';
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface BookMetadata {
-  id: string;
-  title: string;
-  author: string;
-  authors?: string[];
-  date?: string;
-  publicationDate?: string;
-  genres?: string[];
-  isbn?: string;
-  description?: string;
-  publisher?: string;
-  language?: string;
-  pages?: number;
-  coverImage?: string;        // legacy – kept for backward compatibility
-  coverFileId?: string;       // new: Drive file ID for the cover image
-  filePath?: string;
-  fileType: 'epub' | 'pdf' | 'acsm' | 'physical';
-  collections: string[];
-  location?: string;
-  notes?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface UploadBookRequest {
-  metadata: Omit<BookMetadata, 'id' | 'createdAt' | 'updatedAt' | 'filePath' | 'coverFileId'>;
-  file?: File;
-}
-
-export interface LibraryData {
-  books: BookMetadata[];
-  notes: BookNote[];
-  userBookStates: UserBookState[];
-  collections: LibraryCollection[];
-  booksToAcquire: AcquiredBookNote[];
-}
-</file>
-
-<file path="src/components/BookGrid.tsx">
-'use client';
-
-import { BookMetadata } from '@/app/types/book';
-
-interface BookGridProps {
-    books: BookMetadata[];
-    onBookClick: (book: BookMetadata) => void;
-}
-
-function BookGrid({ books, onBookClick }: BookGridProps) {
-    const getCoverUrl = (book: BookMetadata): string => {
-        if (book.coverFileId) {
-            return `/api/utils/cover-image?fileId=${book.coverFileId}`;
-        }
-        return book.coverImage || ''; // fallback for legacy books
-    };
-
-    return (
-        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-6 gap-4">
-            {books.map((book) => (
-                <div
-                    key={book.id}
-                    className="group cursor-pointer transition-transform hover:scale-105"
-                    onClick={() => onBookClick(book)}
-                >
-                    <div className="bg-gray-200 rounded-xs overflow-hidden shadow-md" style={{ aspectRatio: '3 / 4' }}>
-                        {getCoverUrl(book) ? (
-                            <img
-                                src={getCoverUrl(book)}
-                                alt={book.title}
-                                className="w-full h-full object-cover"
-                            />
-                        ) : (
-                            <div className="w-full h-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center">
-                                <span className="text-white text-sm font-medium text-center px-2">
-                                    {book.title.slice(0, 20)}
-                                </span>
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="mt-2 space-y-1">
-                        <h3 className="text-black font-medium text-sm leading-tight line-clamp-2">
-                            {book.title}
-                        </h3>
-                        <p className="text-gray-500 text-xs line-clamp-1">
-                            {book.author}
-                        </p>
-                        <div className="flex flex-wrap gap-1 mt-1 items-center">
-                            {book.genres && (
-                                <>
-                                    {book.genres.slice(0, 2).map((genre, index) => (
-                                        <span
-                                            key={index}
-                                            className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full"
-                                        >
-                                            {genre.trim()}
-                                        </span>
-                                    ))}
-                                    {book.genres.length > 2 && (
-                                        <span className="text-gray-400 text-xs">
-                                            +{book.genres.length - 2}
-                                        </span>
-                                    )}</>
-
-                            )}
-                            {book.collections && (
-                                <>
-                                    {
-                                        book.collections.slice(0, 2).map((genre, index) => (
-                                            <span
-                                                key={index}
-                                                className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full"
-                                            >
-                                                {genre.trim()}
-                                            </span>
-                                        ))
-                                    }
-                                    {book.collections.length > 2 && (
-                                        <span className="text-gray-400 text-xs">
-                                            +{book.collections.length - 2}
-                                        </span>
-                                    )}</>
-                            )}</div>
-                    </div>
-                </div>
-            ))}
-        </div>
-    );
-}
-
-export default BookGrid;
-</file>
-
-<file path="src/components/Library.tsx">
-'use client';
-
-import { useState, useEffect, useMemo } from 'react';
-import { BookMetadata, LibraryData, BookNote, UserBookState, LibraryCollection } from '@/app/types/book';
-import { bookApi } from '@/lib/api/books';
-import BookGrid from './BookGrid';
-import SearchBar from './SearchBar';
-import BookDetailDrawer from './BookDetailDrawer';
-import { UploadBook } from './UploadBook';
-import MultiSelect from './MultiSelect';
-import { useSession, signIn, signOut } from 'next-auth/react';
-import { useRouter } from 'next/navigation'; // <-- added
-
-function Library() {
-  const { data: session, status } = useSession();
-  const router = useRouter(); // <-- added
-  const [libraryData, setLibraryData] = useState<LibraryData>({ books: [], notes: [], userBookStates: [], collections: [], booksToAcquire: [] });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedBook, setSelectedBook] = useState<BookMetadata | null>(null);
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const [selectedCollections, setSelectedCollections] = useState<string[]>([]);
-  const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
-
-  useEffect(() => {
-    loadLibraryData();
-  }, []);
-
-  useEffect(() => {
-    if (selectedBook) {
-      const book = libraryData.books.find(book => book.id === selectedBook.id);
-      if (book) {
-        setSelectedBook(book);
-      }
-    }
-  }, [libraryData.books]);
-
-  const loadLibraryData = async () => {
-    try {
-      setLoading(true);
-      const data = await bookApi.getLibraryData();
-      setLibraryData(data);
-    } catch (err) {
-      setError('Failed to load library data');
-      console.error('Error loading library data:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // --- Local state update helpers ---
-  const updateBookInState = (updatedBook: BookMetadata) => {
-    setLibraryData(prev => ({
-      ...prev,
-      books: prev.books.map(b => b.id === updatedBook.id ? updatedBook : b),
-    }));
-  };
-
-  const updateUserBookStateInState = (updatedState: UserBookState) => {
-    setLibraryData(prev => ({
-      ...prev,
-      userBookStates: prev.userBookStates.map(s =>
-        s.userId === updatedState.userId && s.bookId === updatedState.bookId ? updatedState : s
-      ),
-    }));
-  };
-
-  const addNoteInState = (newNote: BookNote) => {
-    setLibraryData(prev => ({
-      ...prev,
-      notes: [...prev.notes, newNote],
-    }));
-  };
-
-  const deleteNoteInState = (noteId: string) => {
-    setLibraryData(prev => ({
-      ...prev,
-      notes: prev.notes.filter(n => n.id !== noteId),
-    }));
-  };
-
-  const deleteBookInState = (bookId: string) => {
-    setLibraryData(prev => ({
-      ...prev,
-      books: prev.books.filter(b => b.id !== bookId),
-    }));
-    setIsDrawerOpen(false);
-  };
-
-  const addBookInState = (newBook: BookMetadata) => {
-    setLibraryData(prev => ({
-      ...prev,
-      books: [...prev.books, newBook],
-    }));
-  };
-
-  const addCollectionInState = (newCollection: LibraryCollection) => {
-    setLibraryData(prev => ({
-      ...prev,
-      collections: [...prev.collections, newCollection],
-    }));
-  };
-  // --- end helpers ---
-
-  const uniqueCollections = useMemo(() => {
-    const collections = new Set<string>();
-    libraryData.books.forEach(book => book.collections?.forEach(collection => collections.add(collection)));
-    return Array.from(collections).sort();
-  }, [libraryData.books]);
-
-  const uniqueGenres = useMemo(() => {
-    const genres = new Set<string>();
-    libraryData.books.forEach(book => book.genres?.forEach(genre => genres.add(genre)));
-    return Array.from(genres).sort();
-  }, [libraryData.books]);
-
-  const filteredBooks = useMemo(() => {
-    if (!searchQuery.trim() && selectedCollections.length === 0 && selectedGenres.length === 0) return libraryData.books;
-
-    const query = searchQuery.toLowerCase();
-    return libraryData.books.filter(book => {
-      const matchesSearch = book.title.toLowerCase().includes(query) || book.author.toLowerCase().includes(query);
-      const matchesCollections = selectedCollections.length === 0 ||
-        (book.collections?.some(collection => selectedCollections.includes(collection)) ?? false);
-      const matchesGenres = selectedGenres.length === 0 ||
-        (book.genres?.some(genre => selectedGenres.includes(genre)) ?? false);
-      return matchesSearch && matchesCollections && matchesGenres;
-    });
-  }, [libraryData.books, searchQuery, selectedCollections, selectedGenres]);
-
-  const handleBookClick = (book: BookMetadata) => {
-    setSelectedBook(book);
-    setIsDrawerOpen(true);
-  };
-
-  const handleCloseDrawer = () => {
-    setIsDrawerOpen(false);
-    setSelectedBook(null);
-  };
-
-  const handleReadBook = async (book: BookMetadata) => {
-    if (book.fileType === 'physical') {
-      console.log('Viewing physical book details:', book);
-    } else {
-      try {
-        const downloadUrl = await bookApi.downloadBook(book.id);
-        window.open(downloadUrl, '_blank');
-      } catch (err) {
-        console.error('Error downloading book:', err);
-        alert('Failed to open book');
-      }
-    }
-  };
-
-  const handleBookUploaded = (newBook: BookMetadata) => {
-    setIsUploadModalOpen(false);
-    addBookInState(newBook);
-  };
-
-  const handleDeleteBook = async (book: BookMetadata) => {
-    try {
-      await bookApi.deleteBook(book.id);
-      deleteBookInState(book.id);
-    } catch (err) {
-      console.error('Error deleting book:', err);
-      alert('Failed to delete book');
-    }
-  };
-
-  const handleUpdateUserBookState = async (bookId: string, isRead?: boolean, isInReadingList?: boolean) => {
-    if (!session) return;
-    try {
-      const updated = await bookApi.updateUserBookState(bookId, isRead, isInReadingList);
-      updateUserBookStateInState(updated);
-    } catch (err) {
-      console.error('Failed to update user book state:', err);
-    }
-  };
-
-  const handleCreateNote = async (bookId: string, text?: string) => {
-    if (!session) return;
-    try {
-      const newNote = await bookApi.createNote(bookId, text);
-      addNoteInState(newNote);
-    } catch (err) {
-      console.error('Failed to create note:', err);
-    }
-  };
-
-  const handleDeleteNote = async (noteId: string) => {
-    try {
-      await bookApi.deleteNote(noteId);
-      deleteNoteInState(noteId);
-    } catch (err) {
-      console.error('Failed to delete note:', err);
-    }
-  };
-
-  const handleCollectionCreated = (newCollection: LibraryCollection) => {
-    addCollectionInState(newCollection);
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-red-600 text-2xl mb-4">Error</div>
-          <p className="text-gray-600 mb-4">{error}</p>
-          <button
-            onClick={loadLibraryData}
-            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
-          >
-            Try Again
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200 p-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <h1 className="text-xl font-bold text-gray-900">biblioteca malavada</h1>
-          <div className="flex items-center gap-4">
-            {session ? (
-              <>
-                {session.user?.image && (
-                  <img
-                    src={session.user.image}
-                    alt={session.user.name || 'User'}
-                    className="text-xs w-8 h-8 rounded-full cursor-pointer"
-                    onClick={() => router.push('/profile')} // changed
-                  />
-                )}
-                <button
-                  onClick={() => setIsUploadModalOpen(true)}
-                  className="text-xs cursor-pointer bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors"
-                >
-                  Upload Book
-                </button>
-                <button
-                  onClick={() => signOut()}
-                  className="text-xs cursor-pointer bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 transition-colors"
-                >
-                  Sign out
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={() => signIn('google')}
-                className="cursor-pointer bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors"
-              >
-                Sign in
-              </button>
-            )}
-          </div>
-        </div>
-      </header>
-
-      <SearchBar
-        value={searchQuery}
-        onChange={setSearchQuery}
-        placeholder="Search by title or author..."
-      />
-      <main className="p-4 flex-1 flex-col space-y-3 items-start justify-start pb-8">
-        <div className="flex flex-wrap gap-3">
-          <MultiSelect
-            options={uniqueGenres}
-            selected={selectedGenres}
-            onChange={setSelectedGenres}
-            placeholder="All Genres"
-            label="Genres"
-          />
-          <MultiSelect
-            options={uniqueCollections}
-            selected={selectedCollections}
-            onChange={setSelectedCollections}
-            placeholder="All Collections"
-            label="Collections"
-          />
-        </div>
-
-        <p className="text-gray-600 text-sm">
-          {libraryData.books.length} book{libraryData.books.length !== 1 ? 's' : ''} total
-          {searchQuery && ` • ${filteredBooks.length} found`}
-        </p>
-
-        {filteredBooks.length === 0 ? (
-          <h3 className="text-center text-lg font-medium text-gray-900 mb-2">
-            {searchQuery ? 'No books found' : 'No books in your library'}
-          </h3>
-        ) : (
-          <BookGrid books={filteredBooks} onBookClick={handleBookClick} />
-        )}
-      </main >
-
-      <BookDetailDrawer
-        book={selectedBook}
-        isOpen={isDrawerOpen}
-        onClose={handleCloseDrawer}
-        onReadBook={handleReadBook}
-        onDeleteBook={session ? handleDeleteBook : undefined}
-        onBookUpdated={updateBookInState}
-        notes={libraryData.notes.filter(note => note.bookId === (selectedBook?.id || ''))}
-        userBookState={session ? libraryData.userBookStates.find(state => state.bookId === (selectedBook?.id || '') && state.userId === session.user?.id) : undefined}
-        onUpdateUserBookState={session ? handleUpdateUserBookState : undefined}
-        onCreateNote={session ? handleCreateNote : undefined}
-        onDeleteNote={session ? handleDeleteNote : undefined}
-        allCollections={libraryData.collections}
-        allGenres={uniqueGenres}
-        onCollectionCreated={handleCollectionCreated}
-      />
-
-      {
-        isUploadModalOpen && session && (
-          <div className="text-black fixed inset-0 bg-opacity-20 z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-xl">
-              <div className="p-6">
-                <div className="flex justify-between items-center mb-4">
-                  <h2 className="text-xl font-semibold">Upload Book</h2>
-                  <button
-                    onClick={() => setIsUploadModalOpen(false)}
-                    className="cursor-pointer p-2"
-                  >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-                <UploadBook
-                  onUploadComplete={handleBookUploaded}
-                  collectionsOptions={libraryData.collections.map(c => c.name)}
-                  genresOptions={uniqueGenres}
-                />
-              </div>
-            </div>
-          </div>
-        )
-      }
-    </div >
-  );
-}
-
-export default Library;
-</file>
-
 <file path="src/components/MultiSelect.tsx">
 'use client';
 
@@ -4871,11 +3537,1244 @@ export async function getFileWebViewLink(drive: any, fileId: string) {
 }
 </file>
 
+<file path="src/app/profile/page.tsx">
+'use client';
+
+import { useState, useEffect, useMemo } from 'react';
+import { useSession, signOut } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
+import { bookApi } from '@/lib/api/books';
+import { AcquiredBookNote, BookMetadata, LibraryCollection, LibraryData } from '@/app/types/book';
+import BookGrid from '@/components/BookGrid';
+import BookDetailDrawer from '@/components/BookDetailDrawer';
+import { ArrowLeft, CaretDown, CaretUp, PencilSimple, Plus, TrashSimple, X } from '@phosphor-icons/react';
+
+type TabKey = 'collections' | 'toAcquire';
+
+export default function Profile() {
+  const { data: session } = useSession();
+  const router = useRouter();
+  const [libraryData, setLibraryData] = useState<LibraryData>({ books: [], notes: [], userBookStates: [], collections: [], booksToAcquire: [] });
+  const [loading, setLoading] = useState(true);
+  const [selectedBook, setSelectedBook] = useState<BookMetadata | null>(null);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabKey>('collections');
+
+  const [showCreateCollection, setShowCreateCollection] = useState(false);
+  const [editingCollection, setEditingCollection] = useState<LibraryCollection | null>(null);
+  const [collectionForm, setCollectionForm] = useState({ name: '', description: '' });
+  const [expandedCollectionId, setExpandedCollectionId] = useState<string | null>(null);
+  const [isSubmittingCollection, setIsSubmittingCollection] = useState(false);
+
+  const [showAddAcquire, setShowAddAcquire] = useState(false);
+  const [editingAcquire, setEditingAcquire] = useState<AcquiredBookNote | null>(null);
+  const [acquireForm, setAcquireForm] = useState({ title: '', author: '', isbn: '', notes: '', priority: 'medium' as 'low' | 'medium' | 'high' });
+  const [isSubmittingAcquire, setIsSubmittingAcquire] = useState(false);
+
+  useEffect(() => {
+    loadLibraryData();
+  }, []);
+
+  const loadLibraryData = async () => {
+    try {
+      setLoading(true);
+      const data = await bookApi.getLibraryData();
+      setLibraryData(data);
+    } catch (err) {
+      console.error('Error loading library data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // --- Local state update helpers ---
+  const updateBookInState = (updatedBook: BookMetadata) => {
+    setLibraryData(prev => ({
+      ...prev,
+      books: prev.books.map(b => b.id === updatedBook.id ? updatedBook : b),
+    }));
+  };
+
+  const updateCollectionInState = (updatedCollection: LibraryCollection) => {
+    setLibraryData(prev => ({
+      ...prev,
+      collections: prev.collections.map(c => c.id === updatedCollection.id ? updatedCollection : c),
+    }));
+  };
+
+  const addCollectionInState = (newCollection: LibraryCollection) => {
+    setLibraryData(prev => ({
+      ...prev,
+      collections: [...prev.collections, newCollection],
+    }));
+  };
+
+  const deleteCollectionInState = (collectionId: string) => {
+    setLibraryData(prev => ({
+      ...prev,
+      collections: prev.collections.filter(c => c.id !== collectionId),
+    }));
+  };
+
+  const addAcquireInState = (newItem: AcquiredBookNote) => {
+    setLibraryData(prev => ({
+      ...prev,
+      booksToAcquire: [...prev.booksToAcquire, newItem],
+    }));
+  };
+
+  const updateAcquireInState = (updatedItem: AcquiredBookNote) => {
+    setLibraryData(prev => ({
+      ...prev,
+      booksToAcquire: prev.booksToAcquire.map(item => item.id === updatedItem.id ? updatedItem : item),
+    }));
+  };
+
+  const deleteAcquireInState = (itemId: string) => {
+    setLibraryData(prev => ({
+      ...prev,
+      booksToAcquire: prev.booksToAcquire.filter(item => item.id !== itemId),
+    }));
+  };
+  // --- end helpers ---
+
+  const myCollections = useMemo(() => {
+    if (!session?.user?.id) return libraryData.collections;
+    return libraryData.collections.sort((a, b) => {
+      const aIsMine = a.createdByUserId === session.user.id ? 0 : 1;
+      const bIsMine = b.createdByUserId === session.user.id ? 0 : 1;
+      if (aIsMine !== bIsMine) return aIsMine - bIsMine;
+      return a.name.localeCompare(b.name);
+    });
+  }, [libraryData.collections, session]);
+
+  const booksForCollection = (collectionName: string) => {
+    return libraryData.books.filter(book => book.collections?.includes(collectionName));
+  };
+
+  const uniqueGenres = useMemo(() => {
+    const genres = new Set<string>();
+    libraryData.books.forEach(book => book.genres?.forEach(genre => genres.add(genre)));
+    return Array.from(genres).sort();
+  }, [libraryData.books]);
+
+  const booksToAcquire = useMemo(() => {
+    const mine = session?.user?.id
+      ? libraryData.booksToAcquire.filter(b => b.userId === session.user.id)
+      : libraryData.booksToAcquire;
+    const priorityOrder = { high: 0, medium: 1, low: 2 } as const;
+    return [...mine].sort((a, b) => {
+      const pa = priorityOrder[a.priority || 'medium'] ?? 1;
+      const pb = priorityOrder[b.priority || 'medium'] ?? 1;
+      if (pa !== pb) return pa - pb;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+  }, [libraryData.booksToAcquire, session]);
+
+  const priorityStyles = {
+    high: 'bg-red-100 text-red-800 border-red-200',
+    medium: 'bg-amber-100 text-amber-800 border-amber-200',
+    low: 'bg-blue-100 text-blue-800 border-blue-200',
+  };
+
+  const handleBookClick = (book: BookMetadata) => {
+    setSelectedBook(book);
+    setIsDrawerOpen(true);
+  };
+
+  const handleCloseDrawer = () => {
+    setIsDrawerOpen(false);
+    setSelectedBook(null);
+  };
+
+  const handleReadBook = async (book: BookMetadata) => {
+    if (book.fileType === 'physical') {
+      console.log('Viewing physical book details:', book);
+    } else {
+      try {
+        const downloadUrl = await bookApi.downloadBook(book.id);
+        window.open(downloadUrl, '_blank');
+      } catch (err) {
+        console.error('Error downloading book:', err);
+        alert('Failed to open book');
+      }
+    }
+  };
+
+  const openCreateCollection = () => {
+    setEditingCollection(null);
+    setCollectionForm({ name: '', description: '' });
+    setShowCreateCollection(true);
+  };
+
+  const openEditCollection = (c: LibraryCollection) => {
+    setEditingCollection(c);
+    setCollectionForm({ name: c.name, description: c.description || '' });
+    setShowCreateCollection(true);
+  };
+
+  const submitCollection = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!collectionForm.name.trim()) return;
+    setIsSubmittingCollection(true);
+    try {
+      if (editingCollection) {
+        const updated = await bookApi.updateCollection(editingCollection.id, {
+          name: collectionForm.name.trim(),
+          description: collectionForm.description.trim() || undefined,
+        });
+        updateCollectionInState(updated);
+      } else {
+        const created = await bookApi.createCollection(
+          collectionForm.name.trim(),
+          collectionForm.description.trim() || undefined
+        );
+        addCollectionInState(created);
+      }
+      setShowCreateCollection(false);
+      setEditingCollection(null);
+    } catch (err) {
+      console.error('Failed to save collection:', err);
+      alert('Failed to save collection');
+    } finally {
+      setIsSubmittingCollection(false);
+    }
+  };
+
+  const deleteCollection = async (c: LibraryCollection) => {
+    if (!confirm(`Delete collection "${c.name}"? Books will NOT be deleted, just removed from this collection.`)) return;
+    try {
+      await bookApi.deleteCollection(c.id);
+      deleteCollectionInState(c.id);
+      if (expandedCollectionId === c.id) setExpandedCollectionId(null);
+    } catch (err) {
+      console.error('Failed to delete collection:', err);
+      alert('Failed to delete collection');
+    }
+  };
+
+  const openAddAcquire = () => {
+    setEditingAcquire(null);
+    setAcquireForm({ title: '', author: '', isbn: '', notes: '', priority: 'medium' });
+    setShowAddAcquire(true);
+  };
+
+  const openEditAcquire = (item: AcquiredBookNote) => {
+    setEditingAcquire(item);
+    setAcquireForm({
+      title: item.title,
+      author: item.author || '',
+      isbn: item.isbn || '',
+      notes: item.notes || '',
+      priority: item.priority || 'medium',
+    });
+    setShowAddAcquire(true);
+  };
+
+  const submitAcquire = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!acquireForm.title.trim()) return;
+    setIsSubmittingAcquire(true);
+    try {
+      const payload = {
+        title: acquireForm.title.trim(),
+        author: acquireForm.author.trim() || undefined,
+        isbn: acquireForm.isbn.trim() || undefined,
+        notes: acquireForm.notes.trim() || undefined,
+        priority: acquireForm.priority,
+      };
+      if (editingAcquire) {
+        const updated = await bookApi.updateBookToAcquire(editingAcquire.id, payload);
+        updateAcquireInState(updated);
+      } else {
+        const created = await bookApi.addBookToAcquire(payload as any);
+        addAcquireInState(created);
+      }
+      setShowAddAcquire(false);
+      setEditingAcquire(null);
+    } catch (err) {
+      console.error('Failed to save book to acquire:', err);
+      alert('Failed to save');
+    } finally {
+      setIsSubmittingAcquire(false);
+    }
+  };
+
+  const deleteAcquire = async (item: AcquiredBookNote) => {
+    if (!confirm(`Remove "${item.title}" from your acquire list?`)) return;
+    try {
+      await bookApi.deleteBookToAcquire(item.id);
+      deleteAcquireInState(item.id);
+    } catch (err) {
+      console.error('Failed to delete:', err);
+      alert('Failed to delete');
+    }
+  };
+
+  const handleCollectionCreated = (newCollection: LibraryCollection) => {
+    addCollectionInState(newCollection);
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  if (!session) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold mb-4">Please sign in to view your profile</h2>
+        </div>
+      </div>
+    );
+  }
+
+  const TabButton = ({ tab, label, count }: { tab: TabKey; label: string; count?: number }) => (
+    <button
+      onClick={() => setActiveTab(tab)}
+      className={`cursor-pointer px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeTab === tab
+        ? 'bg-blue-600 text-white shadow-sm'
+        : 'text-gray-600 hover:bg-gray-100'
+        }`}
+    >
+      {label}
+      {typeof count === 'number' && (
+        <span className={`ml-2 inline-flex items-center justify-center w-5 h-5 text-xs rounded-full ${activeTab === tab ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-700'
+          }`}>
+          {count}
+        </span>
+      )}
+    </button>
+  );
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <header className="bg-white border-b border-gray-200 p-4 sticky top-0 z-30">
+        <div className="max-w-7xl mx-auto flex items-center justify-between flex-wrap gap-4">
+          <div className="flex items-center gap-4">
+            <h1 className="text-xl font-bold text-gray-900">
+              <button
+                onClick={() => router.push('/')}
+                className="cursor-pointer hover:text-blue-600 transition-colors"
+              >
+                biblioteca malavada
+              </button>
+            </h1>
+            <span className="text-gray-400">/</span>
+            <div className="flex items-center gap-3">
+              {session.user?.image && (
+                <img
+                  src={session.user.image}
+                  alt={session.user.name || 'User'}
+                  className="w-8 h-8 rounded-full border border-gray-200"
+                />
+              )}
+              <div>
+                <div className="text-sm font-semibold text-gray-900">{session.user?.name}</div>
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => router.push('/')}
+              className="flex gap-1 items-center cursor-pointer bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 transition-colors text-xs"
+            >
+              <ArrowLeft size={12} />
+              Library
+            </button>
+            <button
+              onClick={() => signOut()}
+              className="text-xs cursor-pointer bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 transition-colors text-sm"
+            >
+              Sign out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="flex-1 space-y-3 p-4">
+        <div className="pb-3 flex items-center gap-2 border-b border-gray-200 overflow-x-auto">
+          <TabButton tab="collections" label="All Collections" count={myCollections.length} />
+          <TabButton tab="toAcquire" label="Wishlist" count={booksToAcquire.length} />
+        </div>
+
+        {activeTab === 'collections' && (
+          <>
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="text-xl font-bold text-gray-900">All Collections</div>
+              <button
+                onClick={openCreateCollection}
+                className="text-xs cursor-pointer inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm font-medium shadow-sm"
+              >
+                <Plus size={12} /> New Collection
+              </button>
+            </div>
+
+            {myCollections.length === 0 ? (
+              <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
+                <button
+                  onClick={openCreateCollection}
+                  className="text-xs cursor-pointer inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm"
+                >
+                  <Plus size={12} /> Create First Collection
+                </button>
+              </div>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {myCollections.map(collection => {
+                  const books = booksForCollection(collection.name);
+                  const isMine = collection.createdByUserId === session.user.id;
+                  const isExpanded = expandedCollectionId === collection.id;
+                  return (
+                    <div
+                      key={collection.id}
+                      className={`bg-white rounded-xl border transition-all ${isExpanded ? 'border-blue-300 ring-2 ring-blue-100 md:col-span-2 lg:col-span-3' : 'border-gray-200 hover:shadow-sm hover:border-gray-300'
+                        }`}
+                    >
+                      <div className="flex items-center justify-between gap-3 p-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <div onClick={() => setExpandedCollectionId(isExpanded ? null : collection.id)} className="cursor-pointer flex gap-2 items-center text-lg font-semibold text-gray-900 truncate">
+                              {!isExpanded ? <CaretDown size={16} /> : <CaretUp size={16} />}
+                              {collection.name}
+                            </div>
+                          </div>
+                          {collection.description && (
+                            <p className="text-sm text-gray-600 mt-1 line-clamp-2">{collection.description}</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <div className="text-xs text-gray-500 p-1">
+                            {books.length} book{books.length !== 1 ? 's' : ''}
+                          </div>
+                          <button
+                            onClick={() => openEditCollection(collection)}
+                            className="cursor-pointer p-1 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
+                            title="Edit collection"
+                          >
+                            <PencilSimple size={16} />
+                          </button>
+                          <button
+                            onClick={() => deleteCollection(collection)}
+                            className="cursor-pointer p-1 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                            title="Delete collection"
+                          >
+                            <TrashSimple size={16} />
+                          </button>
+                        </div>
+                      </div>
+                      {
+                        isExpanded && (
+                          <div className="border-t border-gray-100 bg-gray-50/50 p-5 rounded-b-xl">
+                            {books.length === 0 ? (
+                              <div className="text-center py-8 text-sm text-gray-500">
+                                <div className="text-3xl mb-2">📖</div>
+                                No books in this collection yet.
+                                <div className="mt-2 text-xs text-gray-400">
+                                  Go to the library, open a book, and add it to "{collection.name}" from the details drawer.
+                                </div>
+                              </div>
+                            ) : (
+                              <BookGrid books={books} onBookClick={handleBookClick} />
+                            )}
+                          </div>
+                        )
+                      }
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+
+        {activeTab === 'toAcquire' && (
+          <>
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Wishlist</h2>
+              </div>
+              <button
+                onClick={openAddAcquire}
+                className="text-xs cursor-pointer inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm font-medium shadow-sm"
+              >
+                <Plus size={12} /> Add Book
+              </button>
+            </div>
+
+            {booksToAcquire.length === 0 ? (
+              <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
+                <button
+                  onClick={openAddAcquire}
+                  className="text-xs cursor-pointer inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm"
+                >
+                  <Plus size={12} /> Add First Book
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {booksToAcquire.map(item => (
+                  <div
+                    key={item.id}
+                    className="bg-white rounded-lg border border-gray-200 p-4 flex flex-col sm:flex-row sm:items-start gap-4 hover:shadow-sm transition-shadow"
+                  >
+                    <div className="flex-shrink-0 pt-1">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 text-xs font-semibold rounded-full border capitalize ${priorityStyles[item.priority || 'medium']}`}>
+                        {item.priority || 'medium'}
+                      </span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-gray-900 leading-tight">{item.title}</h3>
+                      {item.author && (
+                        <div className="text-sm text-gray-600 mt-0.5">by {item.author}</div>
+                      )}
+                      {item.isbn && (
+                        <div className="text-xs text-gray-400 mt-1">ISBN: {item.isbn}</div>
+                      )}
+                      {item.notes && (
+                        <div className="mt-2 text-sm text-gray-700 bg-gray-50 border border-gray-100 rounded-md p-3 whitespace-pre-wrap">
+                          {item.notes}
+                        </div>
+                      )}
+                      <div className="mt-2 text-xs text-gray-400">
+                        Added {new Date(item.createdAt).toLocaleDateString()}
+                      </div>
+                    </div>
+                    <div className="flex-shrink-0 flex sm:flex-col items-center sm:items-end gap-2">
+                      <button
+                        onClick={() => openEditAcquire(item)}
+                        className="cursor-pointer p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
+                        title="Edit"
+                      >
+                        <PencilSimple size={16} />
+                      </button>
+                      <button
+                        onClick={() => deleteAcquire(item)}
+                        className="cursor-pointer p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                        title="Remove"
+                      >
+                        <TrashSimple size={16} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </main>
+
+      {
+        showCreateCollection && (
+          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => !isSubmittingCollection && setShowCreateCollection(false)}>
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+              <div className="p-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                <h2 className="text-md font-semibold text-gray-900">
+                  {editingCollection ? 'Edit Collection' : 'Create New Collection'}
+                </h2>
+                <button
+                  onClick={() => setShowCreateCollection(false)}
+                  disabled={isSubmittingCollection}
+                  className="cursor-pointer p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors disabled:opacity-50"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <form onSubmit={submitCollection} className="p-4 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Collection Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    autoFocus
+                    value={collectionForm.name}
+                    onChange={e => setCollectionForm(f => ({ ...f, name: e.target.value }))}
+                    placeholder="e.g. Latin American Feminist Theory"
+                    className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                    maxLength={80}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Description <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <textarea
+                    value={collectionForm.description}
+                    onChange={e => setCollectionForm(f => ({ ...f, description: e.target.value }))}
+                    placeholder="What's this collection about? Who should read it?"
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    maxLength={500}
+                  />
+                </div>
+                <div className="flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateCollection(false)}
+                    disabled={isSubmittingCollection}
+                    className="cursor-pointer px-4 py-2 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingCollection || !collectionForm.name.trim()}
+                    className="cursor-pointer px-5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors disabled:opacity-50 shadow-sm"
+                  >
+                    {isSubmittingCollection ? 'Saving…' : editingCollection ? 'Save Changes' : 'Create Collection'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )
+      }
+
+      {
+        showAddAcquire && (
+          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => !isSubmittingAcquire && setShowAddAcquire(false)}>
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+              <div className="p-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                <h2 className="text-md font-semibold text-gray-900">
+                  {editingAcquire ? 'Edit Book to Acquire' : 'Add Book to Acquire'}
+                </h2>
+                <button
+                  onClick={() => setShowAddAcquire(false)}
+                  disabled={isSubmittingAcquire}
+                  className="cursor-pointer p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors disabled:opacity-50"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <form onSubmit={submitAcquire} className="p-4 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Title <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    autoFocus
+                    value={acquireForm.title}
+                    onChange={e => setAcquireForm(f => ({ ...f, title: e.target.value }))}
+                    placeholder="Book title"
+                    className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Author</label>
+                    <input
+                      value={acquireForm.author}
+                      onChange={e => setAcquireForm(f => ({ ...f, author: e.target.value }))}
+                      placeholder="e.g. bell hooks"
+                      className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">ISBN</label>
+                    <input
+                      value={acquireForm.isbn}
+                      onChange={e => setAcquireForm(f => ({ ...f, isbn: e.target.value }))}
+                      placeholder="Optional ID"
+                      className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['low', 'medium', 'high'] as const).map(p => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setAcquireForm(f => ({ ...f, priority: p }))}
+                        className={`cursor-pointer py-2 rounded-md border text-sm font-medium capitalize transition-all ${acquireForm.priority === p
+                          ? priorityStyles[p] + ' ring-2 ring-offset-1'
+                          : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                          }`}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Notes <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <textarea
+                    value={acquireForm.notes}
+                    onChange={e => setAcquireForm(f => ({ ...f, notes: e.target.value }))}
+                    placeholder="Where did you hear about it? Which edition? Price? Bookseller name?"
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  />
+                </div>
+                <div className="flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddAcquire(false)}
+                    disabled={isSubmittingAcquire}
+                    className="cursor-pointer px-4 py-2 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingAcquire || !acquireForm.title.trim()}
+                    className="cursor-pointer px-5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors disabled:opacity-50 shadow-sm"
+                  >
+                    {isSubmittingAcquire ? 'Saving…' : editingAcquire ? 'Save Changes' : 'Add to List'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )
+      }
+
+      <BookDetailDrawer
+        book={selectedBook}
+        isOpen={isDrawerOpen}
+        onClose={handleCloseDrawer}
+        onReadBook={handleReadBook}
+        onBookUpdated={updateBookInState}
+        notes={libraryData.notes.filter(note => note.bookId === (selectedBook?.id || ''))}
+        allCollections={libraryData.collections}
+        allGenres={uniqueGenres}
+        onCollectionCreated={handleCollectionCreated}
+      />
+    </div >
+  );
+}
+</file>
+
+<file path="src/app/types/book.ts">
+export interface User {
+  id: string;
+  name: string | null;
+  email: string | null;
+  image: string | null;
+}
+
+export interface BookNote {
+  id: string;
+  userId: string;
+  bookId: string;
+  text?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UserBookState {
+  userId: string;
+  bookId: string;
+  isRead: boolean;
+  isInReadingList: boolean;
+  readAt?: string;
+  addedToListAt?: string;
+}
+
+export interface LibraryCollection {
+  id: string;
+  name: string;
+  description?: string;
+  createdByUserId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AcquiredBookNote {
+  id: string;
+  userId: string;
+  title: string;
+  author?: string;
+  isbn?: string;
+  notes?: string;
+  priority?: 'low' | 'medium' | 'high';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BookMetadata {
+  id: string;
+  title: string;
+  author: string;
+  authors?: string[];
+  date?: string;
+  publicationDate?: string;
+  genres?: string[];
+  isbn?: string;
+  description?: string;
+  publisher?: string;
+  language?: string;
+  pages?: number;
+  coverImage?: string;        // legacy – kept for backward compatibility
+  coverFileId?: string;       // new: Drive file ID for the cover image
+  filePath?: string;
+  fileType: 'epub' | 'pdf' | 'acsm' | 'physical';
+  collections: string[];
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UploadBookRequest {
+  metadata: Omit<BookMetadata, 'id' | 'createdAt' | 'updatedAt' | 'filePath' | 'coverFileId'>;
+  file?: File;
+}
+
+export interface LibraryData {
+  books: BookMetadata[];
+  notes: BookNote[];
+  userBookStates: UserBookState[];
+  collections: LibraryCollection[];
+  booksToAcquire: AcquiredBookNote[];
+}
+</file>
+
+<file path="src/components/BookGrid.tsx">
+'use client';
+
+import { BookMetadata } from '@/app/types/book';
+
+interface BookGridProps {
+    books: BookMetadata[];
+    onBookClick: (book: BookMetadata) => void;
+}
+
+function BookGrid({ books, onBookClick }: BookGridProps) {
+    const getCoverUrl = (book: BookMetadata): string => {
+        if (book.coverFileId) {
+            return `/api/utils/cover-image?fileId=${book.coverFileId}`;
+        }
+        return book.coverImage || ''; // fallback for legacy books
+    };
+
+    return (
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-6 gap-4">
+            {books.map((book) => (
+                <div
+                    key={book.id}
+                    className="group cursor-pointer transition-transform hover:scale-105"
+                    onClick={() => onBookClick(book)}
+                >
+                    <div className="bg-gray-200 rounded-xs overflow-hidden shadow-md" style={{ aspectRatio: '3 / 4' }}>
+                        {getCoverUrl(book) ? (
+                            <img
+                                src={getCoverUrl(book)}
+                                alt={book.title}
+                                className="w-full h-full object-cover"
+                            />
+                        ) : (
+                            <div className="w-full h-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center">
+                                <span className="text-white text-sm font-medium text-center px-2">
+                                    {book.title.slice(0, 20)}
+                                </span>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="mt-2 space-y-1">
+                        <h3 className="text-black font-medium text-sm leading-tight line-clamp-2">
+                            {book.title}
+                        </h3>
+                        <p className="text-gray-500 text-xs line-clamp-1">
+                            {book.author}
+                        </p>
+                        <div className="flex flex-wrap gap-1 mt-1 items-center">
+                            {book.genres && (
+                                <>
+                                    {book.genres.slice(0, 2).map((genre, index) => (
+                                        <span
+                                            key={index}
+                                            className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full"
+                                        >
+                                            {genre.trim()}
+                                        </span>
+                                    ))}
+                                    {book.genres.length > 2 && (
+                                        <span className="text-gray-400 text-xs">
+                                            +{book.genres.length - 2}
+                                        </span>
+                                    )}</>
+
+                            )}
+                            {book.collections && (
+                                <>
+                                    {
+                                        book.collections.slice(0, 2).map((genre, index) => (
+                                            <span
+                                                key={index}
+                                                className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full"
+                                            >
+                                                {genre.trim()}
+                                            </span>
+                                        ))
+                                    }
+                                    {book.collections.length > 2 && (
+                                        <span className="text-gray-400 text-xs">
+                                            +{book.collections.length - 2}
+                                        </span>
+                                    )}</>
+                            )}</div>
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+}
+
+export default BookGrid;
+</file>
+
+<file path="src/components/Library.tsx">
+'use client';
+
+import { useState, useEffect, useMemo } from 'react';
+import { BookMetadata, LibraryData, BookNote, LibraryCollection } from '@/app/types/book';
+import { bookApi } from '@/lib/api/books';
+import BookGrid from './BookGrid';
+import SearchBar from './SearchBar';
+import BookDetailDrawer from './BookDetailDrawer';
+import { UploadBook } from './UploadBook';
+import MultiSelect from './MultiSelect';
+import { useSession, signIn, signOut } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
+
+function Library() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
+  const [libraryData, setLibraryData] = useState<LibraryData>({ books: [], notes: [], userBookStates: [], collections: [], booksToAcquire: [] });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedBook, setSelectedBook] = useState<BookMetadata | null>(null);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [selectedCollections, setSelectedCollections] = useState<string[]>([]);
+  const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
+
+  useEffect(() => {
+    loadLibraryData();
+  }, []);
+
+  useEffect(() => {
+    if (selectedBook) {
+      const book = libraryData.books.find(book => book.id === selectedBook.id);
+      if (book) {
+        setSelectedBook(book);
+      }
+    }
+  }, [libraryData.books]);
+
+  const loadLibraryData = async () => {
+    try {
+      setLoading(true);
+      const data = await bookApi.getLibraryData();
+      setLibraryData(data);
+    } catch (err) {
+      setError('Failed to load library data');
+      console.error('Error loading library data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // --- Local state update helpers ---
+  const updateBookInState = (updatedBook: BookMetadata) => {
+    setLibraryData(prev => ({
+      ...prev,
+      books: prev.books.map(b => b.id === updatedBook.id ? updatedBook : b),
+    }));
+  };
+
+  const addNoteInState = (newNote: BookNote) => {
+    setLibraryData(prev => ({
+      ...prev,
+      notes: [...prev.notes, newNote],
+    }));
+  };
+
+  const deleteNoteInState = (noteId: string) => {
+    setLibraryData(prev => ({
+      ...prev,
+      notes: prev.notes.filter(n => n.id !== noteId),
+    }));
+  };
+
+  const deleteBookInState = (bookId: string) => {
+    setLibraryData(prev => ({
+      ...prev,
+      books: prev.books.filter(b => b.id !== bookId),
+    }));
+    setIsDrawerOpen(false);
+  };
+
+  const addBookInState = (newBook: BookMetadata) => {
+    setLibraryData(prev => ({
+      ...prev,
+      books: [...prev.books, newBook],
+    }));
+  };
+
+  const addCollectionInState = (newCollection: LibraryCollection) => {
+    setLibraryData(prev => ({
+      ...prev,
+      collections: [...prev.collections, newCollection],
+    }));
+  };
+  // --- end helpers ---
+
+  const uniqueCollections = useMemo(() => {
+    const collections = new Set<string>();
+    libraryData.books.forEach(book => book.collections?.forEach(collection => collections.add(collection)));
+    return Array.from(collections).sort();
+  }, [libraryData.books]);
+
+  const uniqueGenres = useMemo(() => {
+    const genres = new Set<string>();
+    libraryData.books.forEach(book => book.genres?.forEach(genre => genres.add(genre)));
+    return Array.from(genres).sort();
+  }, [libraryData.books]);
+
+  const filteredBooks = useMemo(() => {
+    if (!searchQuery.trim() && selectedCollections.length === 0 && selectedGenres.length === 0) return libraryData.books;
+
+    const query = searchQuery.toLowerCase();
+    return libraryData.books.filter(book => {
+      const matchesSearch = book.title.toLowerCase().includes(query) || book.author.toLowerCase().includes(query);
+      const matchesCollections = selectedCollections.length === 0 ||
+        (book.collections?.some(collection => selectedCollections.includes(collection)) ?? false);
+      const matchesGenres = selectedGenres.length === 0 ||
+        (book.genres?.some(genre => selectedGenres.includes(genre)) ?? false);
+      return matchesSearch && matchesCollections && matchesGenres;
+    });
+  }, [libraryData.books, searchQuery, selectedCollections, selectedGenres]);
+
+  const handleBookClick = (book: BookMetadata) => {
+    setSelectedBook(book);
+    setIsDrawerOpen(true);
+  };
+
+  const handleCloseDrawer = () => {
+    setIsDrawerOpen(false);
+    setSelectedBook(null);
+  };
+
+  const handleReadBook = async (book: BookMetadata) => {
+    if (book.fileType === 'physical') {
+      console.log('Viewing physical book details:', book);
+    } else {
+      try {
+        const downloadUrl = await bookApi.downloadBook(book.id);
+        window.open(downloadUrl, '_blank');
+      } catch (err) {
+        console.error('Error downloading book:', err);
+        alert('Failed to open book');
+      }
+    }
+  };
+
+  const handleBookUploaded = (newBook: BookMetadata) => {
+    setIsUploadModalOpen(false);
+    addBookInState(newBook);
+  };
+
+  const handleDeleteBook = async (book: BookMetadata) => {
+    try {
+      await bookApi.deleteBook(book.id);
+      deleteBookInState(book.id);
+    } catch (err) {
+      console.error('Error deleting book:', err);
+      alert('Failed to delete book');
+    }
+  };
+
+  const handleCreateNote = async (bookId: string, text?: string) => {
+    if (!session) return;
+    try {
+      const newNote = await bookApi.createNote(bookId, text);
+      addNoteInState(newNote);
+    } catch (err) {
+      console.error('Failed to create note:', err);
+    }
+  };
+
+  const handleDeleteNote = async (noteId: string) => {
+    try {
+      await bookApi.deleteNote(noteId);
+      deleteNoteInState(noteId);
+    } catch (err) {
+      console.error('Failed to delete note:', err);
+    }
+  };
+
+  const handleCollectionCreated = (newCollection: LibraryCollection) => {
+    addCollectionInState(newCollection);
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-red-600 text-2xl mb-4">Error</div>
+          <p className="text-gray-600 mb-4">{error}</p>
+          <button
+            onClick={loadLibraryData}
+            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+          >
+            Try Again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <header className="bg-white border-b border-gray-200 p-4">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <h1 className="text-xl font-bold text-gray-900">biblioteca malavada</h1>
+          <div className="flex items-center gap-4">
+            {session ? (
+              <>
+                {session.user?.image && (
+                  <img
+                    src={session.user.image}
+                    alt={session.user.name || 'User'}
+                    className="text-xs w-8 h-8 rounded-full cursor-pointer"
+                    onClick={() => router.push('/profile')}
+                  />
+                )}
+                <button
+                  onClick={() => setIsUploadModalOpen(true)}
+                  className="text-xs cursor-pointer bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors"
+                >
+                  Upload Book
+                </button>
+                <button
+                  onClick={() => signOut()}
+                  className="text-xs cursor-pointer bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 transition-colors"
+                >
+                  Sign out
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => signIn('google')}
+                className="cursor-pointer bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors"
+              >
+                Sign in
+              </button>
+            )}
+          </div>
+        </div>
+      </header>
+
+      <SearchBar
+        value={searchQuery}
+        onChange={setSearchQuery}
+        placeholder="Search by title or author..."
+      />
+      <main className="p-4 flex-1 flex-col space-y-3 items-start justify-start pb-8">
+        <div className="flex flex-wrap gap-3">
+          <MultiSelect
+            options={uniqueGenres}
+            selected={selectedGenres}
+            onChange={setSelectedGenres}
+            placeholder="All Genres"
+            label="Genres"
+          />
+          <MultiSelect
+            options={uniqueCollections}
+            selected={selectedCollections}
+            onChange={setSelectedCollections}
+            placeholder="All Collections"
+            label="Collections"
+          />
+        </div>
+
+        <p className="text-gray-600 text-sm">
+          {libraryData.books.length} book{libraryData.books.length !== 1 ? 's' : ''} total
+          {searchQuery && ` • ${filteredBooks.length} found`}
+        </p>
+
+        {filteredBooks.length === 0 ? (
+          <h3 className="text-center text-lg font-medium text-gray-900 mb-2">
+            {searchQuery ? 'No books found' : 'No books in your library'}
+          </h3>
+        ) : (
+          <BookGrid books={filteredBooks} onBookClick={handleBookClick} />
+        )}
+      </main>
+
+      <BookDetailDrawer
+        book={selectedBook}
+        isOpen={isDrawerOpen}
+        onClose={handleCloseDrawer}
+        onReadBook={handleReadBook}
+        onDeleteBook={session ? handleDeleteBook : undefined}
+        onBookUpdated={updateBookInState}
+        notes={libraryData.notes.filter(note => note.bookId === (selectedBook?.id || ''))}
+        onCreateNote={session ? handleCreateNote : undefined}
+        onDeleteNote={session ? handleDeleteNote : undefined}
+        allCollections={libraryData.collections}
+        allGenres={uniqueGenres}
+        onCollectionCreated={handleCollectionCreated}
+      />
+
+      {
+        isUploadModalOpen && session && (
+          <div className="text-black fixed inset-0 bg-opacity-20 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-xl">
+              <div className="p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-xl font-semibold">Upload Book</h2>
+                  <button
+                    onClick={() => setIsUploadModalOpen(false)}
+                    className="cursor-pointer p-2"
+                  >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                <UploadBook
+                  onUploadComplete={handleBookUploaded}
+                  collectionsOptions={libraryData.collections.map(c => c.name)}
+                  genresOptions={uniqueGenres}
+                />
+              </div>
+            </div>
+          </div>
+        )
+      }
+    </div >
+  );
+}
+
+export default Library;
+</file>
+
 <file path="src/components/BookDetailDrawer.tsx">
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { BookMetadata, BookNote, UserBookState, LibraryCollection } from '@/app/types/book';
+import { BookMetadata, BookNote, LibraryCollection } from '@/app/types/book';
 import { BookMetadataForm } from './BookMetadataForm';
 import { bookApi } from '@/lib/api/books';
 import { CameraIcon, Check, EraserIcon, FolderPlus, ImageSquare, PencilIcon, Plus, XIcon } from '@phosphor-icons/react';
@@ -4891,8 +4790,6 @@ interface BookDetailDrawerProps {
     onDeleteBook?: (book: BookMetadata) => void;
     onBookUpdated?: (book: BookMetadata) => void;
     notes?: BookNote[];
-    userBookState?: UserBookState;
-    onUpdateUserBookState?: (bookId: string, isRead?: boolean, isInReadingList?: boolean) => Promise<void>;
     onCreateNote?: (bookId: string, text?: string) => Promise<void>;
     onDeleteNote?: (noteId: string) => Promise<void>;
     allCollections: LibraryCollection[];
@@ -4908,8 +4805,6 @@ export default function BookDetailDrawer({
     onDeleteBook,
     onBookUpdated,
     notes,
-    userBookState,
-    onUpdateUserBookState,
     onCreateNote,
     onDeleteNote,
     allCollections,
@@ -4921,8 +4816,8 @@ export default function BookDetailDrawer({
     const [isEditingMetadata, setIsEditingMetadata] = useState(false);
     const [newNoteText, setNewNoteText] = useState('');
     const [isAddingNote, setIsAddingNote] = useState(false);
+    const [isReading, setIsReading] = useState(false);
 
-    // Store actual File object for upload to images/ directory
     const [pendingCoverFile, setPendingCoverFile] = useState<File | null>(null);
     const [pendingCoverPreview, setPendingCoverPreview] = useState<string | null>(null);
 
@@ -5019,7 +4914,6 @@ export default function BookDetailDrawer({
             onCollectionCreated?.(created);
             setNewCollectionName('');
             setNewCollectionDescription('');
-            // Add book to the new collection
             await toggleCollection(name, true);
         } catch (err) {
             console.error('Failed to create collection:', err);
@@ -5065,11 +4959,20 @@ export default function BookDetailDrawer({
         }
     };
 
+    const handleRead = async () => {
+        setIsReading(true);
+        try {
+            await onReadBook(book);
+        } finally {
+            setIsReading(false);
+        }
+    };
+
     const getCoverUrl = (book: BookMetadata): string | undefined => {
         if (book.coverFileId) {
             return `/api/utils/cover-image?fileId=${book.coverFileId}`;
         }
-        return book.coverImage; // fallback for legacy books
+        return book.coverImage;
     };
 
     const effectiveCover = pendingCoverPreview || getCoverUrl(book);
@@ -5119,28 +5022,16 @@ export default function BookDetailDrawer({
                                             )}
                                         </div>
                                     </div>
-                                    {session && onUpdateUserBookState && (
-                                        <div className="mt-3 flex flex-wrap gap-2">
-                                            <button
-                                                onClick={() => onUpdateUserBookState(book.id, !userBookState?.isRead, userBookState?.isInReadingList)}
-                                                className={`cursor-pointer px-3 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1.5 ${userBookState?.isRead ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
-                                                    }`}
-                                            >
-                                                <Check size={14} />
-                                                {userBookState?.isRead ? 'Read' : 'Mark as Read'}
-                                            </button>
-                                            <button
-                                                onClick={() => setShowCollectionsModal(true)}
-                                                className={`cursor-pointer px-3 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1.5 ${bookCollections.length > 0 ? 'bg-violet-100 text-violet-800' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
-                                                    }`}
-                                            >
-                                                <FolderPlus size={14} />
-                                                {bookCollections.length === 0
-                                                    ? 'Add to Collection'
-                                                    : `In ${bookCollections.length} Collection${bookCollections.length !== 1 ? 's' : ''}`}
-                                            </button>
-                                        </div>
-                                    )}
+                                    <button
+                                        onClick={() => setShowCollectionsModal(true)}
+                                        className={`w-fit cursor-pointer px-3 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1.5 ${bookCollections.length > 0 ? 'bg-violet-100 text-violet-800' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+                                            }`}
+                                    >
+                                        <FolderPlus size={12} />
+                                        {bookCollections.length === 0
+                                            ? 'Add to Collection'
+                                            : `In ${bookCollections.length} Collection${bookCollections.length !== 1 ? 's' : ''}`}
+                                    </button>
                                 </div>
                             </div>
                         )}
@@ -5283,10 +5174,21 @@ export default function BookDetailDrawer({
 
                     {session?.user && book.fileType !== 'physical' && (
                         <button
-                            onClick={() => onReadBook(book)}
-                            className="cursor-pointer w-full bg-blue-600 text-white py-2.5 px-4 rounded-md hover:bg-blue-700 transition-colors font-medium text-sm"
+                            onClick={handleRead}
+                            disabled={isReading}
+                            className="cursor-pointer w-full bg-blue-600 text-white py-2.5 px-4 rounded-md hover:bg-blue-700 transition-colors font-medium text-sm flex items-center justify-center gap-2 disabled:opacity-50"
                         >
-                            Read Book
+                            {isReading ? (
+                                <>
+                                    <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    Loading...
+                                </>
+                            ) : (
+                                'Read Book'
+                            )}
                         </button>
                     )}
                 </div>
@@ -5353,7 +5255,15 @@ export default function BookDetailDrawer({
                                         disabled={!newCollectionName.trim() || isCreatingCollection || isSubmitting}
                                         className="cursor-pointer w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md bg-violet-600 text-white hover:bg-violet-700 transition-colors text-xs font-medium disabled:opacity-50"
                                     >
-                                        <Plus size={16} /> {isCreatingCollection ? 'Creating...' : 'Create & Add Book'}
+                                        {isCreatingCollection ? (
+                                            <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                            </svg>
+                                        ) : (
+                                            <Plus size={16} />
+                                        )}
+                                        {isCreatingCollection ? 'Creating...' : 'Create & Add Book'}
                                     </button>
                                 </div>
                             </div>
@@ -5384,7 +5294,14 @@ export default function BookDetailDrawer({
                                                     </div>
                                                     <div className={`flex-shrink-0 w-4 h-4 rounded border flex items-center justify-center text-[10px] ${isIn ? 'bg-violet-600 border-violet-600 text-white' : 'border-gray-300'
                                                         }`}>
-                                                        {isIn && '✓'}
+                                                        {isSubmitting ? (
+                                                            <svg className="animate-spin h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                            </svg>
+                                                        ) : (
+                                                            isIn && <Check size={12} />
+                                                        )}
                                                     </div>
                                                 </button>
                                             );
@@ -5423,7 +5340,6 @@ export const bookSchema = z.object({
   publisher: z.string().optional(),
   language: z.string().optional(),
   pages: z.number().optional(),
-  location: z.string().optional(),
   notes: z.string().optional(),
   collections: z.array(z.string()).optional(),
 });
@@ -5440,7 +5356,6 @@ const formSchema = z.object({
   publisher: z.string().optional(),
   language: z.string().optional(),
   pages: z.number().optional(),
-  location: z.string().optional(),
   notes: z.string().optional(),
   collections: z.union([z.string(), z.array(z.string())]).optional(),
 });
@@ -5491,7 +5406,6 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
       publisher: book.publisher || '',
       language: book.language || '',
       pages: book.pages,
-      location: book.location || '',
       notes: book.notes || '',
       isbn: book.isbn || '',
       collections: book.collections && book.collections.length > 0 ? book.collections.join(', ') : '',
@@ -5511,7 +5425,6 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
         publisher: book.publisher || '',
         language: book.language || '',
         pages: book.pages,
-        location: book.location || '',
         notes: book.notes || '',
         isbn: book.isbn || '',
         collections: book.collections && book.collections.length > 0 ? book.collections.join(', ') : '',
@@ -5784,13 +5697,20 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
 
-    const [metadata, setMetadata] = useState<UploadBookRequest['metadata']>({
+    const [metadata, setMetadata] = useState<UploadBookRequest['metadata'] & { pages: string }>({
         title: '',
         author: '',
         fileType: 'epub',
         collections: [],
         genres: [],
         publicationDate: '',
+        isbn: '',
+        publisher: '',
+        description: '',
+        pages: '',
+        language: '',
+        notes: '',
+        date: '',
     });
 
     useEffect(() => {
@@ -5853,11 +5773,11 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                 publisher: extractedMetadata.publisher || prev.publisher,
                 publicationDate: extractedMetadata.publicationDate || prev.publicationDate,
                 description: extractedMetadata.description || prev.description,
-                pages: extractedMetadata.pages || prev.pages,
+                pages: extractedMetadata.pages ? String(extractedMetadata.pages) : prev.pages,
                 language: extractedMetadata.language || prev.language,
                 genres: extractedMetadata.genres || prev.genres,
                 collections: extractedMetadata.collections || prev.collections,
-                location: extractedMetadata.location || prev.location,
+                date: extractedMetadata.date || prev.date,
             }));
 
             const extension = selectedFile.name.split('.').pop()?.toLowerCase();
@@ -5888,9 +5808,16 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
         e.preventDefault();
         setUploading(true);
 
+        const pagesNum = metadata.pages ? Number(metadata.pages) : undefined;
+
         try {
             const newBook = await bookApi.uploadBook(
-                { metadata },
+                {
+                    metadata: {
+                        ...metadata,
+                        pages: pagesNum,
+                    }
+                },
                 metadata.fileType === 'physical' ? undefined : file!,
                 customCover || undefined
             );
@@ -5908,6 +5835,13 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                 collections: [],
                 genres: [],
                 publicationDate: '',
+                isbn: '',
+                publisher: '',
+                description: '',
+                pages: '',
+                language: '',
+                notes: '',
+                date: '',
             });
             onUploadComplete?.(newBook);
         } catch (error) {
@@ -5950,15 +5884,9 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                     {extracting && <p className="text-sm text-blue-600 mt-1">Extracting metadata...</p>}
                 </div>
             ) : (
+                // Physical books – we removed the Location field
                 <div className='flex flex-col gap-1 w-full'>
-                    <label className="text-sm font-medium text-gray-700">Location</label>
-                    <input
-                        className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
-                        type="text"
-                        value={metadata.location || ''}
-                        onChange={(e) => setMetadata({ ...metadata, location: e.target.value })}
-                        required
-                    />
+                    <p className="text-sm text-gray-500">Physical book – no file required.</p>
                 </div>
             )}
 
@@ -6060,7 +5988,7 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                     <input
                         className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
                         type="text"
-                        value={metadata.isbn || ''}
+                        value={metadata.isbn}
                         onChange={(e) => setMetadata({ ...metadata, isbn: e.target.value })}
                     />
                 </div>
@@ -6069,7 +5997,7 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                     <input
                         className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
                         type="text"
-                        value={metadata.publisher || ''}
+                        value={metadata.publisher}
                         onChange={(e) => setMetadata({ ...metadata, publisher: e.target.value })}
                     />
                 </div>
@@ -6079,7 +6007,7 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                 <label className="text-sm font-medium text-gray-700">Description</label>
                 <textarea
                     className='h-16 p-2 border border-gray-300 rounded-md text-gray-900 text-sm'
-                    value={metadata.description || ''}
+                    value={metadata.description}
                     onChange={(e) => setMetadata({ ...metadata, description: e.target.value })}
                     rows={3}
                 />
@@ -6094,7 +6022,7 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                         min="1000"
                         max={new Date().getFullYear()}
                         placeholder="e.g. 2024"
-                        value={metadata.publicationDate || ''}
+                        value={metadata.publicationDate}
                         onChange={(e) => setMetadata({ ...metadata, publicationDate: e.target.value })}
                     />
                 </div>
@@ -6102,7 +6030,7 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                     <label className="text-sm font-medium text-gray-700">Language</label>
                     <select
                         className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
-                        value={metadata.language || ''}
+                        value={metadata.language}
                         onChange={(e) => setMetadata({ ...metadata, language: e.target.value })}
                     >
                         <option value="">Select...</option>
@@ -6119,8 +6047,8 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                         className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
                         type="number"
                         min="1"
-                        value={metadata.pages || ''}
-                        onChange={(e) => setMetadata({ ...metadata, pages: Number(e.target.value) })}
+                        value={metadata.pages}
+                        onChange={(e) => setMetadata({ ...metadata, pages: e.target.value })}
                     />
                 </div>
             </div>
@@ -6129,7 +6057,7 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                 <label className="block text-sm font-medium text-gray-700 mb-1">Genres</label>
                 <MultiSelect
                     options={genresOptions}
-                    selected={metadata.genres || []}
+                    selected={metadata.genres}
                     onChange={(v) => setMetadata(prev => ({ ...prev, genres: v }))}
                     placeholder="Search or add a genre…"
                     creatable
@@ -6140,7 +6068,7 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                 <label className="block text-sm font-medium text-gray-700 mb-1">Collections</label>
                 <MultiSelect
                     options={collectionsOptions}
-                    selected={metadata.collections || []}
+                    selected={metadata.collections}
                     onChange={(v) => setMetadata(prev => ({ ...prev, collections: v }))}
                     placeholder="Search or add a collection…"
                     creatable

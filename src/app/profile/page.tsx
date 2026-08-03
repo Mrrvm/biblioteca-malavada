@@ -35,6 +35,12 @@ export default function Profile() {
     loadLibraryData();
   }, []);
 
+  useEffect(() => {
+    if (session?.user?.id) {
+      setExpandedCollectionId(libraryData.collections[0]?.id || null);
+    }
+  }, [libraryData.collections]);
+
   const loadLibraryData = async () => {
     try {
       setLoading(true);
@@ -385,10 +391,9 @@ export default function Profile() {
               </div>
             ) : (
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {myCollections.map(collection => {
+                {myCollections.map((collection, index) => {
                   const books = booksForCollection(collection.name);
-                  const isMine = collection.createdByUserId === session.user.id;
-                  const isExpanded = expandedCollectionId === collection.id;
+                  let isExpanded = expandedCollectionId === collection.id;
                   return (
                     <div
                       key={collection.id}

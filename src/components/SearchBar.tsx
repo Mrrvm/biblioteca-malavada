@@ -11,8 +11,8 @@ interface SearchBarProps {
 function SearchBar({ value, onChange, placeholder = "Search books..." }: SearchBarProps) {
   return (
     <div className="text-black sticky top-0 z-10 bg-white/95 backdrop-blur-sm border-b border-gray-200 p-4">
-      <div className="max-w-7xl mx-auto">
-        <div className="relative">
+      <div className="max-w-7xl  mx-auto">
+        <div className="relative w-full">
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
             <MagnifyingGlassIcon className="h-5 w-5 text-gray-400" />
           </div>
