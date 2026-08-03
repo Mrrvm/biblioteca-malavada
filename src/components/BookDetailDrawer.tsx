@@ -222,7 +222,7 @@ export default function BookDetailDrawer({
 
                         {!isEditingMetadata && (
                             <div className='flex flex-col md:flex-row items-start gap-4'>
-                                <div className='w-full flex flex-row justify-between'>
+                                <div className='w-full sm:w-fit flex flex-row justify-between'>
                                     {effectiveCover && (
                                         <img
                                             style={{ aspectRatio: '3 / 4' }}
@@ -233,7 +233,7 @@ export default function BookDetailDrawer({
                                     )}
                                     <XIcon
                                         onClick={() => { onClose(); }}
-                                        className="flex md:hidden cursor-pointer w-5 h-5 text-gray-600 hover:text-red-600 transition-colors"
+                                        className="flex sm:!hidden cursor-pointer w-5 h-5 text-gray-600 hover:text-red-600 transition-colors"
                                     />
                                 </div>
 
