@@ -29,13 +29,20 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
 
-    const [metadata, setMetadata] = useState<UploadBookRequest['metadata']>({
+    const [metadata, setMetadata] = useState<UploadBookRequest['metadata'] & { pages: string }>({
         title: '',
         author: '',
         fileType: 'epub',
         collections: [],
         genres: [],
         publicationDate: '',
+        isbn: '',
+        publisher: '',
+        description: '',
+        pages: '',
+        language: '',
+        notes: '',
+        date: '',
     });
 
     useEffect(() => {
@@ -98,11 +105,11 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                 publisher: extractedMetadata.publisher || prev.publisher,
                 publicationDate: extractedMetadata.publicationDate || prev.publicationDate,
                 description: extractedMetadata.description || prev.description,
-                pages: extractedMetadata.pages || prev.pages,
+                pages: extractedMetadata.pages ? String(extractedMetadata.pages) : prev.pages,
                 language: extractedMetadata.language || prev.language,
                 genres: extractedMetadata.genres || prev.genres,
                 collections: extractedMetadata.collections || prev.collections,
-                location: extractedMetadata.location || prev.location,
+                date: extractedMetadata.date || prev.date,
             }));
 
             const extension = selectedFile.name.split('.').pop()?.toLowerCase();
@@ -133,9 +140,16 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
         e.preventDefault();
         setUploading(true);
 
+        const pagesNum = metadata.pages ? Number(metadata.pages) : undefined;
+
         try {
             const newBook = await bookApi.uploadBook(
-                { metadata },
+                {
+                    metadata: {
+                        ...metadata,
+                        pages: pagesNum,
+                    }
+                },
                 metadata.fileType === 'physical' ? undefined : file!,
                 customCover || undefined
             );
@@ -153,6 +167,13 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                 collections: [],
                 genres: [],
                 publicationDate: '',
+                isbn: '',
+                publisher: '',
+                description: '',
+                pages: '',
+                language: '',
+                notes: '',
+                date: '',
             });
             onUploadComplete?.(newBook);
         } catch (error) {
@@ -195,15 +216,9 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                     {extracting && <p className="text-sm text-blue-600 mt-1">Extracting metadata...</p>}
                 </div>
             ) : (
+                // Physical books – we removed the Location field
                 <div className='flex flex-col gap-1 w-full'>
-                    <label className="text-sm font-medium text-gray-700">Location</label>
-                    <input
-                        className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
-                        type="text"
-                        value={metadata.location || ''}
-                        onChange={(e) => setMetadata({ ...metadata, location: e.target.value })}
-                        required
-                    />
+                    <p className="text-sm text-gray-500">Physical book – no file required.</p>
                 </div>
             )}
 
@@ -305,7 +320,7 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                     <input
                         className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
                         type="text"
-                        value={metadata.isbn || ''}
+                        value={metadata.isbn}
                         onChange={(e) => setMetadata({ ...metadata, isbn: e.target.value })}
                     />
                 </div>
@@ -314,7 +329,7 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                     <input
                         className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
                         type="text"
-                        value={metadata.publisher || ''}
+                        value={metadata.publisher}
                         onChange={(e) => setMetadata({ ...metadata, publisher: e.target.value })}
                     />
                 </div>
@@ -324,7 +339,7 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                 <label className="text-sm font-medium text-gray-700">Description</label>
                 <textarea
                     className='h-16 p-2 border border-gray-300 rounded-md text-gray-900 text-sm'
-                    value={metadata.description || ''}
+                    value={metadata.description}
                     onChange={(e) => setMetadata({ ...metadata, description: e.target.value })}
                     rows={3}
                 />
@@ -339,7 +354,7 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                         min="1000"
                         max={new Date().getFullYear()}
                         placeholder="e.g. 2024"
-                        value={metadata.publicationDate || ''}
+                        value={metadata.publicationDate}
                         onChange={(e) => setMetadata({ ...metadata, publicationDate: e.target.value })}
                     />
                 </div>
@@ -347,7 +362,7 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                     <label className="text-sm font-medium text-gray-700">Language</label>
                     <select
                         className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
-                        value={metadata.language || ''}
+                        value={metadata.language}
                         onChange={(e) => setMetadata({ ...metadata, language: e.target.value })}
                     >
                         <option value="">Select...</option>
@@ -364,8 +379,8 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                         className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
                         type="number"
                         min="1"
-                        value={metadata.pages || ''}
-                        onChange={(e) => setMetadata({ ...metadata, pages: Number(e.target.value) })}
+                        value={metadata.pages}
+                        onChange={(e) => setMetadata({ ...metadata, pages: e.target.value })}
                     />
                 </div>
             </div>
@@ -374,7 +389,7 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                 <label className="block text-sm font-medium text-gray-700 mb-1">Genres</label>
                 <MultiSelect
                     options={genresOptions}
-                    selected={metadata.genres || []}
+                    selected={metadata.genres}
                     onChange={(v) => setMetadata(prev => ({ ...prev, genres: v }))}
                     placeholder="Search or add a genre…"
                     creatable
@@ -385,7 +400,7 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                 <label className="block text-sm font-medium text-gray-700 mb-1">Collections</label>
                 <MultiSelect
                     options={collectionsOptions}
-                    selected={metadata.collections || []}
+                    selected={metadata.collections}
                     onChange={(v) => setMetadata(prev => ({ ...prev, collections: v }))}
                     placeholder="Search or add a collection…"
                     creatable

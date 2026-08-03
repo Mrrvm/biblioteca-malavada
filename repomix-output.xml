@@ -63,6 +63,8 @@ src/
       user-book-states/
         route.ts
       utils/
+        cover-image/
+          route.ts
         coverImage.ts
     profile/
       page.tsx
@@ -476,6 +478,54 @@ export async function DELETE(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+</file>
+
+<file path="src/app/api/utils/cover-image/route.ts">
+import { NextRequest, NextResponse } from 'next/server';
+import { getGoogleDriveClient } from '@/lib/googleDrive';
+import { auth } from '../../auth/[...nextauth]/route';
+
+export async function GET(request: NextRequest) {
+    const fileId = request.nextUrl.searchParams.get('fileId');
+    if (!fileId) {
+        return new NextResponse('Missing fileId', { status: 400 });
+    }
+
+    try {
+        const session = await auth();
+        let drive;
+
+        // Try to use the user's own Drive client first (if logged in)
+        if (session) {
+            try {
+                drive = await getGoogleDriveClient(true);
+            } catch (e) {
+                // Fallback to service account if user auth fails
+                console.warn('User Drive client failed, falling back to service account', e);
+                drive = await getGoogleDriveClient(false);
+            }
+        } else {
+            // Not logged in – use service account (folder must be shared with it)
+            drive = await getGoogleDriveClient(false);
+        }
+
+        const response = await drive.files.get(
+            { fileId, alt: 'media' },
+            { responseType: 'arraybuffer' }
+        );
+        const buffer = Buffer.from(response.data);
+        const contentType = response.headers['content-type'] || 'image/jpeg';
+        return new NextResponse(buffer, {
+            headers: {
+                'Content-Type': contentType,
+                'Cache-Control': 'public, max-age=86400',
+            },
+        });
+    } catch (error) {
+        console.error('Failed to fetch cover image:', error);
+        return new NextResponse('Image not found', { status: 404 });
+    }
 }
 </file>
 
@@ -1341,372 +1391,6 @@ export async function GET(
 }
 </file>
 
-<file path="src/app/api/books/[id]/route.ts">
-import { NextRequest, NextResponse } from 'next/server';
-import { BookMetadata, LibraryData } from '@/app/types/book';
-import { getGoogleDriveClient, getLibraryMetadata, saveLibraryMetadata, normalizeLibraryData } from '@/lib/googleDrive';
-import { auth } from '../../auth/[...nextauth]/route';
-
-const GOOGLE_DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID!;
-
-async function getLibraryData(drive: any): Promise<LibraryData> {
-  try {
-    const data = await getLibraryMetadata(drive, GOOGLE_DRIVE_FOLDER_ID);
-    return normalizeLibraryData(data);
-  } catch (error) {
-    console.error('Error fetching library data:', error);
-    return normalizeLibraryData({});
-  }
-}
-
-async function saveLibraryData(drive: any, data: LibraryData) {
-  await saveLibraryMetadata(drive, GOOGLE_DRIVE_FOLDER_ID, normalizeLibraryData(data));
-}
-
-export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  try {
-    const { id } = await params;
-    const drive = await getGoogleDriveClient(false);
-    const libraryData = await getLibraryData(drive);
-    const book = libraryData.books.find(b => b.id === id);
-    if (!book) {
-      return NextResponse.json({ error: 'Book not found' }, { status: 404 });
-    }
-    return NextResponse.json(book);
-  } catch (error) {
-    console.error('Error fetching book:', error);
-    return NextResponse.json({ error: 'Failed to fetch book' }, { status: 500 });
-  }
-}
-
-export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  try {
-    const session = await auth();
-    if (!session) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
-    const drive = await getGoogleDriveClient(true); // Use user OAuth client
-
-    const { id } = await params;
-    const updatedBook: BookMetadata = await request.json();
-    if (!updatedBook.id) {
-      return NextResponse.json(
-        { error: 'Book ID is required for updating' },
-        { status: 400 }
-      );
-    }
-
-    if (updatedBook.id !== id) {
-      return NextResponse.json(
-        { error: 'Book ID in body does not match ID in URL' },
-        { status: 400 }
-      );
-    }
-
-    const libraryData = await getLibraryData(drive);
-    const bookIndex = libraryData.books.findIndex((book) => book.id === id);
-
-    if (bookIndex === -1) {
-      return NextResponse.json(
-        { error: 'Book not found' },
-        { status: 404 }
-      );
-    }
-    libraryData.books[bookIndex] = {
-      ...libraryData.books[bookIndex],
-      ...updatedBook,
-      updatedAt: new Date().toISOString(),
-    };
-
-    await saveLibraryData(drive, libraryData);
-
-    return NextResponse.json(libraryData.books[bookIndex]);
-  } catch (error) {
-    console.error('Error updating book:', error);
-    return NextResponse.json(
-      { error: 'Failed to update book' },
-      { status: 500 }
-    );
-  }
-}
-
-export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  try {
-    const session = await auth();
-    if (!session) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
-    const drive = await getGoogleDriveClient(true); // Use user OAuth client
-
-    const { id } = await params;
-
-    const libraryData = await getLibraryData(drive);
-    const initialLength = libraryData.books.length;
-    const updatedBooks = libraryData.books.filter((book) => book.id !== id);
-
-    if (initialLength === updatedBooks.length) {
-      return NextResponse.json(
-        { error: 'Book not found' },
-        { status: 404 }
-      );
-    }
-
-    libraryData.books = updatedBooks;
-    await saveLibraryData(drive, libraryData);
-
-    return NextResponse.json(
-      { message: 'Book deleted successfully' },
-      { status: 200 }
-    );
-  } catch (error) {
-    console.error('Error deleting book:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete book' },
-      { status: 500 }
-    );
-  }
-}
-</file>
-
-<file path="src/app/api/books/route.ts">
-import { NextRequest, NextResponse } from 'next/server';
-import { BookMetadata, LibraryData } from '@/app/types/book';
-import {
-  getGoogleDriveClient,
-  getLibraryMetadata,
-  saveLibraryMetadata,
-  uploadFileToDrive,
-  normalizeLibraryData,
-  extractPdfCoverAsBase64,
-  extractEpubCoverAsBase64
-} from '@/lib/googleDrive';
-import { searchCoverImage } from '../utils/coverImage';
-import { auth } from '../auth/[...nextauth]/route';
-
-const GOOGLE_DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID!;
-
-async function getLibraryData(drive: any): Promise<LibraryData> {
-  try {
-    console.log('Calling getLibraryMetadata...');
-    const data = await getLibraryMetadata(drive, GOOGLE_DRIVE_FOLDER_ID);
-    console.log('getLibraryMetadata returned:', data);
-    return normalizeLibraryData(data);
-  } catch (error) {
-    console.error('Error fetching library data:', error);
-    return normalizeLibraryData({});
-  }
-}
-
-async function saveLibraryData(drive: any, data: LibraryData) {
-  await saveLibraryMetadata(drive, GOOGLE_DRIVE_FOLDER_ID, normalizeLibraryData(data));
-}
-
-export async function GET() {
-  try {
-    const drive = await getGoogleDriveClient(false);
-    const libraryData = await getLibraryData(drive);
-    return NextResponse.json(libraryData);
-  } catch (error) {
-    console.error('Error fetching books:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch books' },
-      { status: 500 }
-    );
-  }
-}
-
-export async function POST(request: NextRequest) {
-  try {
-    const session = await auth();
-    if (!session) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
-    const userDrive = await getGoogleDriveClient(true);
-    const serviceDrive = await getGoogleDriveClient(false);
-
-    const formData = await request.formData();
-    const file = formData.get('file') as File | null;
-    const metadata = JSON.parse(formData.get('metadata') as string);
-    const customCoverFile = formData.get('customCover') as File | null;
-
-    const id = `book_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-    const bookMetadata: BookMetadata = {
-      ...metadata,
-      id,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    if (customCoverFile && customCoverFile.size > 0) {
-      try {
-        console.log('Using custom cover image uploaded by user:', customCoverFile.name);
-        const coverBuffer = Buffer.from(await customCoverFile.arrayBuffer());
-        const uploadedCover = await uploadFileToDrive(
-          userDrive,
-          GOOGLE_DRIVE_FOLDER_ID,
-          `${id}-cover.${customCoverFile.type.includes('png') ? 'png' : 'jpg'}`,
-          customCoverFile.type,
-          coverBuffer
-        );
-        const base64Cover = coverBuffer.toString('base64');
-        bookMetadata.coverImage = `data:${customCoverFile.type};base64,${base64Cover}`;
-        console.log('Custom cover image applied successfully (file saved to drive id:', uploadedCover.id, ')');
-      } catch (customCoverErr) {
-        console.warn('Failed to process custom cover, will try other methods:', customCoverErr);
-      }
-    }
-
-    if (!bookMetadata.coverImage && bookMetadata.fileType !== 'physical' && file) {
-      try {
-        const fileBuffer = Buffer.from(await file.arrayBuffer());
-        if (bookMetadata.fileType === 'pdf') {
-          const pdfCover = await extractPdfCoverAsBase64(fileBuffer);
-          if (pdfCover) {
-            bookMetadata.coverImage = pdfCover;
-            console.log('Applied PDF first page as cover');
-          }
-        } else if (bookMetadata.fileType === 'epub') {
-          const epubCover = await extractEpubCoverAsBase64(fileBuffer);
-          if (epubCover) {
-            bookMetadata.coverImage = epubCover;
-            console.log('Applied EPUB cover as cover');
-          }
-        }
-      } catch (extractCoverErr) {
-        console.warn('Failed to extract cover from file:', extractCoverErr);
-      }
-    }
-
-    if (!bookMetadata.coverImage) {
-      try {
-        bookMetadata.coverImage = await searchCoverImage(bookMetadata);
-      } catch (coverError) {
-        console.warn('Error searching cover image online during upload:', coverError);
-        bookMetadata.coverImage = '';
-      }
-    }
-
-    const libraryData = await getLibraryData(serviceDrive);
-    libraryData.books.push(bookMetadata);
-
-    if (bookMetadata.fileType !== 'physical' && file) {
-      console.log('Uploading file to Google Drive (using user OAuth):', file.name);
-      const fileBuffer = Buffer.from(await file.arrayBuffer());
-      const uploadedFile = await uploadFileToDrive(userDrive, GOOGLE_DRIVE_FOLDER_ID, `${id}-${file.name}`, file.type, fileBuffer);
-      bookMetadata.filePath = uploadedFile.id;
-    }
-    await saveLibraryData(userDrive, libraryData);
-    return NextResponse.json(bookMetadata);
-  } catch (error) {
-    console.error('Error uploading book:', error);
-    return NextResponse.json(
-      {
-        error: 'Failed to upload book',
-        details: error instanceof Error ? error.message : String(error),
-      },
-      { status: 500 }
-    );
-  }
-}
-</file>
-
-<file path="src/app/api/notes/route.ts">
-import { NextRequest, NextResponse } from 'next/server';
-import { BookNote, LibraryData } from '@/app/types/book';
-import { getGoogleDriveClient, getLibraryMetadata, saveLibraryMetadata, uploadFileToDrive, normalizeLibraryData } from '@/lib/googleDrive';
-import { auth } from '../auth/[...nextauth]/route';
-
-const GOOGLE_DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID!;
-
-async function getLibraryData(drive: any): Promise<LibraryData> {
-  try {
-    const data = await getLibraryMetadata(drive, GOOGLE_DRIVE_FOLDER_ID);
-    return normalizeLibraryData(data);
-  } catch (error) {
-    console.error('Error fetching library data:', error);
-    return normalizeLibraryData({});
-  }
-}
-
-async function saveLibraryData(drive: any, data: LibraryData) {
-  await saveLibraryMetadata(drive, GOOGLE_DRIVE_FOLDER_ID, normalizeLibraryData(data));
-}
-
-export async function POST(request: NextRequest) {
-  try {
-    const session = await auth();
-    if (!session || !session.user?.id) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
-    const drive = await getGoogleDriveClient(true); // Use user OAuth client
-
-    const formData = await request.formData();
-    const text = formData.get('text') as string | null;
-    const image = formData.get('image') as File | null;
-    const bookId = formData.get('bookId') as string;
-
-    if (!bookId) {
-      return NextResponse.json({ error: 'Book ID is required' }, { status: 400 });
-    }
-
-    const id = `note_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const note: BookNote = {
-      id,
-      userId: session.user.id,
-      bookId,
-      text: text || undefined,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    if (image) {
-      const fileBuffer = Buffer.from(await image.arrayBuffer());
-      const uploadedFile = await uploadFileToDrive(drive, GOOGLE_DRIVE_FOLDER_ID, `${id}-${image.name}`, image.type, fileBuffer);
-      note.imageUrl = uploadedFile.id;
-    }
-
-    const libraryData = await getLibraryData(drive);
-    libraryData.notes.push(note);
-    await saveLibraryData(drive, libraryData);
-    return NextResponse.json(note);
-  } catch (error) {
-    console.error('Error creating note:', error);
-    return NextResponse.json(
-      { error: 'Failed to create note' },
-      { status: 500 }
-    );
-  }
-}
-
-export async function DELETE(request: NextRequest) {
-  try {
-    const session = await auth();
-    if (!session) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
-    const drive = await getGoogleDriveClient(true); // Use user OAuth client
-
-    const { id } = await request.json();
-
-    const libraryData = await getLibraryData(drive);
-    const initialLength = libraryData.notes.length;
-    libraryData.notes = libraryData.notes.filter((note) => note.id !== id);
-    if (libraryData.notes.length === initialLength) {
-      return NextResponse.json({ error: 'Note not found' }, { status: 404 });
-    }
-    await saveLibraryData(drive, libraryData);
-    return NextResponse.json({ message: 'Note deleted' });
-  } catch (error) {
-    console.error('Error deleting note:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete note' },
-      { status: 500 }
-    );
-  }
-}
-</file>
-
 <file path="src/app/api/user-book-states/route.ts">
 import { NextRequest, NextResponse } from 'next/server';
 import { UserBookState, LibraryData } from '@/app/types/book';
@@ -1881,21 +1565,737 @@ export async function searchCoverImage(book: BookMetadata): Promise<string> {
 }
 </file>
 
+<file path="src/lib/metadataExtractor.ts">
+import { BookMetadata } from '@/app/types/book';
+
+export function extractMetadataFromFilename(filename: string): Partial<BookMetadata> {
+  const metadata: Partial<BookMetadata> = {};
+
+  const patterns = [
+    // Pattern: Author - Title (Year).ext
+    /^(.*?)\s*-\s*(.*?)\s*\((\d{4})\)\.[^.]+$/i,
+    // Pattern: Title - Author (Year).ext
+    /^(.*?)\s*-\s*(.*?)\s*\((\d{4})\)\.[^.]+$/i,
+    // Pattern: Author - Title.ext
+    /^(.*?)\s*-\s*(.*?)\.[^.]+$/i,
+    // Pattern: Title by Author.ext
+    /^(.*?)\s+by\s+(.*?)\.[^.]+$/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = filename.match(pattern);
+    if (match) {
+      if (pattern.source.includes('by')) {
+        // Title by Author pattern
+        metadata.title = match[1]?.trim();
+        metadata.author = match[2]?.trim();
+      } else if (match[3]) {
+        // Includes year
+        metadata.author = match[1]?.trim();
+        metadata.title = match[2]?.trim();
+        metadata.publicationDate = match[3];
+      } else {
+        // Basic author - title
+        metadata.author = match[1]?.trim();
+        metadata.title = match[2]?.trim();
+      }
+      break;
+    }
+  }
+
+  const isbnMatch = filename.match(/\b(97[89][\d]{10}|\d{9}[\dXx])\b/);
+  if (isbnMatch) {
+    metadata.isbn = isbnMatch[0];
+  }
+
+  return metadata;
+}
+
+export async function searchBookMetadataOnline(
+  query: string,
+  isbn?: string
+): Promise<Partial<BookMetadata> | null> {
+  try {
+    const googleBooksApiKey = process.env.GOOGLE_BOOKS_API_KEY;
+
+    const buildGoogleBooksQuery = () => {
+      if (isbn) return `isbn:${isbn}`;
+      return query;
+    };
+
+    const runGoogleBooks = async (withKey: boolean): Promise<Partial<BookMetadata> | null> => {
+      try {
+        const q = encodeURIComponent(buildGoogleBooksQuery());
+        const key = withKey && googleBooksApiKey ? `&key=${googleBooksApiKey}` : '';
+        const url = `https://www.googleapis.com/books/v1/volumes?q=${q}&maxResults=1${key}`;
+        const response = await fetch(url);
+        if (!response.ok) return null;
+        const data = await response.json();
+        if (data.items && data.items.length > 0) {
+          const item = data.items[0];
+          const bookInfo = item.volumeInfo;
+          const metadata: Partial<BookMetadata> = {
+            title: bookInfo.title,
+            author: bookInfo.authors?.join(', '),
+            authors: bookInfo.authors,
+            publisher: bookInfo.publisher,
+            publicationDate: bookInfo.publishedDate,
+            description: bookInfo.description,
+            isbn: bookInfo.industryIdentifiers?.find((id: any) => id.type === 'ISBN_13')?.identifier ||
+              bookInfo.industryIdentifiers?.find((id: any) => id.type === 'ISBN_10')?.identifier,
+            pages: bookInfo.pageCount,
+            language: bookInfo.language,
+            genres: bookInfo.categories,
+            coverImage: bookInfo.imageLinks?.thumbnail?.replace('http:', 'https:').replace('&edge=curl', '').replace('zoom=1', 'zoom=2'),
+          };
+          return metadata;
+        }
+      } catch (err) {
+        console.warn('Google Books search failed:', err);
+      }
+      return null;
+    };
+
+    if (googleBooksApiKey) {
+      const gb = await runGoogleBooks(true);
+      if (gb) return gb;
+    }
+
+    const gbNoKey = await runGoogleBooks(false);
+    if (gbNoKey) return gbNoKey;
+
+    if (isbn) {
+      try {
+        const ltResponse = await fetch(
+          `https://www.librarything.com/api/thingISBN/${isbn}.json`
+        );
+        if (ltResponse.ok) {
+          try {
+            const data = await ltResponse.json();
+            const similarIsbns = Object.values(data || {}).flat().filter((x: any) => typeof x === 'string' && x !== isbn) as string[];
+            if (similarIsbns && similarIsbns.length > 0 && !isbn) {
+              // Use similar ISBN as fallback isbn hint
+            }
+          } catch (e) { /* LibraryThing response can be malformed */ }
+        }
+      } catch (ltError) {
+        console.warn('LibraryThing ISBN lookup failed:', ltError);
+      }
+    }
+
+    if (isbn) {
+      try {
+        const olResponse = await fetch(
+          `https://openlibrary.org/isbn/${isbn}.json`
+        );
+
+        if (olResponse.ok) {
+          const olData = await olResponse.json();
+          const metadata: Partial<BookMetadata> = {
+            title: olData.title,
+            author: olData.authors?.map((a: any) => a.name).join(', '),
+            authors: olData.authors?.map((a: any) => a.name),
+            publicationDate: olData.publish_date,
+            publisher: olData.publishers?.join(', '),
+            pages: olData.number_of_pages,
+            isbn,
+          };
+          if (olData.works && olData.works[0]?.key) {
+            try {
+              const workKey = olData.works[0].key;
+              const workResp = await fetch(`https://openlibrary.org${workKey}.json`);
+              if (workResp.ok) {
+                const workData = await workResp.json();
+                metadata.description =
+                  typeof workData.description === 'string' ? workData.description :
+                    workData.description?.value;
+              }
+            } catch (workErr) { /* ignore */ }
+          }
+          return metadata;
+        }
+      } catch (olError) {
+        console.warn('Open Library ISBN lookup failed:', olError);
+      }
+    }
+
+    try {
+      const searchQuery = new URLSearchParams();
+      if (isbn) {
+        searchQuery.set('isbn', isbn);
+      } else {
+        searchQuery.set('title', query);
+      }
+      const olSearchResponse = await fetch(
+        `https://openlibrary.org/search.json?${searchQuery.toString()}&limit=1`
+      );
+
+      if (olSearchResponse.ok) {
+        const olSearchData = await olSearchResponse.json();
+        if (olSearchData.docs && olSearchData.docs.length > 0) {
+          const doc = olSearchData.docs[0];
+          const metadata: Partial<BookMetadata> = {
+            title: doc.title,
+            author: doc.author_name?.join(', '),
+            authors: doc.author_name,
+            publicationDate: doc.first_publish_year ? String(doc.first_publish_year) : undefined,
+            publisher: doc.publisher?.join(', '),
+            pages: doc.number_of_pages_median,
+            isbn: doc.isbn?.find((i: string) => i.length === 13) || doc.isbn?.[0],
+            language: doc.language?.[0],
+            genres: doc.subject,
+            coverImage: doc.cover_i ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg?default=false` : undefined,
+          };
+          return metadata;
+        }
+      }
+    } catch (olSearchError) {
+      console.warn('Open Library search failed:', olSearchError);
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Error searching for book metadata online:', error);
+    return null;
+  }
+}
+
+export async function extractMetadataFromEpub(file: File): Promise<Partial<BookMetadata>> {
+  try {
+    const metadata: Partial<BookMetadata> = {};
+
+    const filenameMetadata = extractMetadataFromFilename(file.name);
+    Object.assign(metadata, filenameMetadata);
+
+    if (metadata.isbn || metadata.title) {
+      const onlineMetadata = await searchBookMetadataOnline(
+        metadata.title || file.name,
+        metadata.isbn
+      );
+
+      if (onlineMetadata) {
+        Object.assign(metadata, onlineMetadata);
+      }
+    }
+
+    return metadata;
+  } catch (error) {
+    console.error('Error extracting metadata from EPUB:', error);
+    return extractMetadataFromFilename(file.name);
+  }
+}
+
+export async function extractMetadataFromPdf(file: File): Promise<Partial<BookMetadata>> {
+  try {
+    const metadata: Partial<BookMetadata> = extractMetadataFromFilename(file.name);
+
+    if (metadata.isbn || metadata.title) {
+      const onlineMetadata = await searchBookMetadataOnline(
+        metadata.title || file.name,
+        metadata.isbn
+      );
+
+      if (onlineMetadata) {
+        Object.assign(metadata, onlineMetadata);
+      }
+    }
+
+    return metadata;
+  } catch (error) {
+    console.error('Error extracting metadata from PDF:', error);
+    return extractMetadataFromFilename(file.name);
+  }
+}
+
+export async function extractBookMetadata(file: File | null, filename: string): Promise<Partial<BookMetadata>> {
+  let metadata: Partial<BookMetadata> = {};
+
+  // First, extract from filename
+  const filenameMetadata = extractMetadataFromFilename(filename);
+  Object.assign(metadata, filenameMetadata);
+
+  if (file) {
+    try {
+      if (file.type === 'application/epub+zip' || file.name.endsWith('.epub')) {
+        const epubMetadata = await extractMetadataFromEpub(file);
+        Object.assign(metadata, epubMetadata);
+      } else if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+        const pdfMetadata = await extractMetadataFromPdf(file);
+        Object.assign(metadata, pdfMetadata);
+      }
+    } catch (error) {
+      console.error('Error extracting metadata from file:', error);
+    }
+  }
+
+  try {
+    const onlineMetadata = await searchBookMetadataOnline(
+      metadata.title || filename,
+      metadata.isbn
+    );
+
+    if (onlineMetadata) {
+      Object.assign(metadata, onlineMetadata);
+    }
+  } catch (error) {
+    console.error('Error with online metadata search:', error);
+  }
+
+  return metadata;
+}
+</file>
+
+<file path="package.json">
+{
+  "name": "library",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.948.0",
+    "@aws-sdk/s3-request-presigner": "^3.948.0",
+    "@hookform/resolvers": "^5.2.2",
+    "@phosphor-icons/react": "^2.1.10",
+    "css-select": "^6.0.0",
+    "dom-parser": "^1.1.5",
+    "epubjs": "^0.3.93",
+    "googleapis": "^173.0.0",
+    "jimp": "^1.6.0",
+    "jszip": "^3.10.1",
+    "next": "16.0.10",
+    "next-auth": "^5.0.0-beta.32",
+    "pdf-lib": "^1.17.1",
+    "pdf-parse": "^2.4.5",
+    "pdf2pic": "^3.2.0",
+    "pdfjs-dist": "^6.2.108",
+    "postcss": "^8.5.6",
+    "react": "19.2.1",
+    "react-dom": "19.2.1",
+    "react-hook-form": "^7.68.0",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.0.10",
+    "tailwindcss": "^4.1.18",
+    "typescript": "^5"
+  }
+}
+</file>
+
+<file path="src/app/api/books/[id]/route.ts">
+import { NextRequest, NextResponse } from 'next/server';
+import { BookMetadata, LibraryData } from '@/app/types/book';
+import { getGoogleDriveClient, getLibraryMetadata, saveLibraryMetadata, normalizeLibraryData, uploadCoverImage } from '@/lib/googleDrive';
+import { auth } from '../../auth/[...nextauth]/route';
+
+const GOOGLE_DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID!;
+
+async function getLibraryData(drive: any): Promise<LibraryData> {
+  try {
+    const data = await getLibraryMetadata(drive, GOOGLE_DRIVE_FOLDER_ID);
+    return normalizeLibraryData(data);
+  } catch (error) {
+    console.error('Error fetching library data:', error);
+    return normalizeLibraryData({});
+  }
+}
+
+async function saveLibraryData(drive: any, data: LibraryData) {
+  await saveLibraryMetadata(drive, GOOGLE_DRIVE_FOLDER_ID, normalizeLibraryData(data));
+}
+
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await params;
+    const drive = await getGoogleDriveClient(false);
+    const libraryData = await getLibraryData(drive);
+    const book = libraryData.books.find(b => b.id === id);
+    if (!book) {
+      return NextResponse.json({ error: 'Book not found' }, { status: 404 });
+    }
+    return NextResponse.json(book);
+  } catch (error) {
+    console.error('Error fetching book:', error);
+    return NextResponse.json({ error: 'Failed to fetch book' }, { status: 500 });
+  }
+}
+
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const session = await auth();
+    if (!session) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+    const userDrive = await getGoogleDriveClient(true);
+    const serviceDrive = await getGoogleDriveClient(false);
+
+    const { id } = await params;
+    const formData = await request.formData();
+    const metadataJson = formData.get('metadata') as string;
+    const coverFile = formData.get('coverFile') as File | null;
+
+    if (!metadataJson) {
+      return NextResponse.json({ error: 'Metadata is required' }, { status: 400 });
+    }
+
+    const updatedBook: Partial<BookMetadata> = JSON.parse(metadataJson);
+    if (updatedBook.id && updatedBook.id !== id) {
+      return NextResponse.json({ error: 'ID mismatch' }, { status: 400 });
+    }
+
+    const libraryData = await getLibraryData(serviceDrive);
+    const bookIndex = libraryData.books.findIndex((b) => b.id === id);
+    if (bookIndex === -1) {
+      return NextResponse.json({ error: 'Book not found' }, { status: 404 });
+    }
+
+    // Handle cover file upload if present
+    if (coverFile) {
+      const coverBuffer = Buffer.from(await coverFile.arrayBuffer());
+      const coverFileId = await uploadCoverImage(userDrive, GOOGLE_DRIVE_FOLDER_ID, id, coverBuffer, coverFile.type);
+      updatedBook.coverFileId = coverFileId;
+      // Optionally remove old cover file? We'll keep it for now.
+    }
+
+    // Merge updates
+    libraryData.books[bookIndex] = {
+      ...libraryData.books[bookIndex],
+      ...updatedBook,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await saveLibraryData(userDrive, libraryData);
+    return NextResponse.json(libraryData.books[bookIndex]);
+  } catch (error) {
+    console.error('Error updating book:', error);
+    return NextResponse.json(
+      { error: 'Failed to update book' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const session = await auth();
+    if (!session) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+    const drive = await getGoogleDriveClient(true);
+
+    const { id } = await params;
+
+    const libraryData = await getLibraryData(drive);
+    const initialLength = libraryData.books.length;
+    const updatedBooks = libraryData.books.filter((book) => book.id !== id);
+
+    if (initialLength === updatedBooks.length) {
+      return NextResponse.json(
+        { error: 'Book not found' },
+        { status: 404 }
+      );
+    }
+
+    libraryData.books = updatedBooks;
+    await saveLibraryData(drive, libraryData);
+
+    return NextResponse.json(
+      { message: 'Book deleted successfully' },
+      { status: 200 }
+    );
+  } catch (error) {
+    console.error('Error deleting book:', error);
+    return NextResponse.json(
+      { error: 'Failed to delete book' },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="src/app/api/books/route.ts">
+import { NextRequest, NextResponse } from 'next/server';
+import { BookMetadata, LibraryData } from '@/app/types/book';
+import {
+  getGoogleDriveClient,
+  getLibraryMetadata,
+  saveLibraryMetadata,
+  uploadFileToDrive,
+  normalizeLibraryData,
+  extractPdfCoverAsBase64,
+  extractEpubCoverAsBase64,
+  uploadCoverImage,
+} from '@/lib/googleDrive';
+import { searchCoverImage } from '../utils/coverImage';
+import { auth } from '../auth/[...nextauth]/route';
+
+const GOOGLE_DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID!;
+
+async function getLibraryData(drive: any): Promise<LibraryData> {
+  try {
+    const data = await getLibraryMetadata(drive, GOOGLE_DRIVE_FOLDER_ID);
+    return normalizeLibraryData(data);
+  } catch (error) {
+    console.error('Error fetching library data:', error);
+    return normalizeLibraryData({});
+  }
+}
+
+async function saveLibraryData(drive: any, data: LibraryData) {
+  await saveLibraryMetadata(drive, GOOGLE_DRIVE_FOLDER_ID, normalizeLibraryData(data));
+}
+
+export async function GET() {
+  try {
+    const drive = await getGoogleDriveClient(false);
+    const libraryData = await getLibraryData(drive);
+    return NextResponse.json(libraryData);
+  } catch (error) {
+    console.error('Error fetching books:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch books' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const session = await auth();
+    if (!session) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+    const userDrive = await getGoogleDriveClient(true);
+    const serviceDrive = await getGoogleDriveClient(false);
+
+    const formData = await request.formData();
+    const file = formData.get('file') as File | null;
+    const metadata = JSON.parse(formData.get('metadata') as string);
+    const customCoverFile = formData.get('customCover') as File | null;
+
+    const id = `book_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    const bookMetadata: BookMetadata = {
+      ...metadata,
+      id,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    // --- Handle cover image ---
+    let coverFileId: string | undefined;
+
+    if (customCoverFile && customCoverFile.size > 0) {
+      try {
+        console.log('Using custom cover image uploaded by user:', customCoverFile.name);
+        const coverBuffer = Buffer.from(await customCoverFile.arrayBuffer());
+        coverFileId = await uploadCoverImage(userDrive, GOOGLE_DRIVE_FOLDER_ID, id, coverBuffer, customCoverFile.type);
+        console.log('Custom cover uploaded with file id:', coverFileId);
+      } catch (customCoverErr) {
+        console.warn('Failed to upload custom cover:', customCoverErr);
+      }
+    }
+
+    // If no custom cover and we have a digital file, try to extract cover from file
+    if (!coverFileId && file && bookMetadata.fileType !== 'physical') {
+      try {
+        const fileBuffer = Buffer.from(await file.arrayBuffer());
+        let coverBuffer: Buffer | null = null;
+        let mimeType = 'image/jpeg';
+        if (bookMetadata.fileType === 'pdf') {
+          const base64 = await extractPdfCoverAsBase64(fileBuffer);
+          if (base64) {
+            const matches = base64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+            if (matches) {
+              mimeType = matches[1];
+              coverBuffer = Buffer.from(matches[2], 'base64');
+            }
+          }
+        } else if (bookMetadata.fileType === 'epub') {
+          const base64 = await extractEpubCoverAsBase64(fileBuffer);
+          if (base64) {
+            const matches = base64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+            if (matches) {
+              mimeType = matches[1];
+              coverBuffer = Buffer.from(matches[2], 'base64');
+            }
+          }
+        }
+        if (coverBuffer) {
+          coverFileId = await uploadCoverImage(userDrive, GOOGLE_DRIVE_FOLDER_ID, id, coverBuffer, mimeType);
+          console.log('Extracted cover uploaded with file id:', coverFileId);
+        }
+      } catch (extractErr) {
+        console.warn('Failed to extract/upload cover from file:', extractErr);
+      }
+    }
+
+    // If still no cover, try online search and upload if a URL is found
+    if (!coverFileId) {
+      try {
+        const onlineCoverUrl = await searchCoverImage(bookMetadata);
+        if (onlineCoverUrl) {
+          // Download the image and upload to Drive
+          const response = await fetch(onlineCoverUrl);
+          if (response.ok) {
+            const arrayBuffer = await response.arrayBuffer();
+            const coverBuffer = Buffer.from(arrayBuffer);
+            const contentType = response.headers.get('content-type') || 'image/jpeg';
+            coverFileId = await uploadCoverImage(userDrive, GOOGLE_DRIVE_FOLDER_ID, id, coverBuffer, contentType);
+            console.log('Online cover uploaded with file id:', coverFileId);
+          }
+        }
+      } catch (coverError) {
+        console.warn('Error fetching/uploading online cover:', coverError);
+      }
+    }
+
+    if (coverFileId) {
+      bookMetadata.coverFileId = coverFileId;
+    }
+
+    // --- Upload the book file if digital ---
+    const libraryData = await getLibraryData(serviceDrive);
+    libraryData.books.push(bookMetadata);
+
+    if (bookMetadata.fileType !== 'physical' && file) {
+      console.log('Uploading file to Google Drive:', file.name);
+      const fileBuffer = Buffer.from(await file.arrayBuffer());
+      const uploadedFile = await uploadFileToDrive(userDrive, GOOGLE_DRIVE_FOLDER_ID, `${id}-${file.name}`, file.type, fileBuffer);
+      bookMetadata.filePath = uploadedFile.id;
+    }
+
+    await saveLibraryData(userDrive, libraryData);
+    return NextResponse.json(bookMetadata);
+  } catch (error) {
+    console.error('Error uploading book:', error);
+    return NextResponse.json(
+      {
+        error: 'Failed to upload book',
+        details: error instanceof Error ? error.message : String(error),
+      },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="src/app/api/notes/route.ts">
+import { NextRequest, NextResponse } from 'next/server';
+import { BookNote, LibraryData } from '@/app/types/book';
+import { getGoogleDriveClient, getLibraryMetadata, saveLibraryMetadata, normalizeLibraryData } from '@/lib/googleDrive';
+import { auth } from '../auth/[...nextauth]/route';
+
+const GOOGLE_DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID!;
+
+async function getLibraryData(drive: any): Promise<LibraryData> {
+  try {
+    const data = await getLibraryMetadata(drive, GOOGLE_DRIVE_FOLDER_ID);
+    return normalizeLibraryData(data);
+  } catch (error) {
+    console.error('Error fetching library data:', error);
+    return normalizeLibraryData({});
+  }
+}
+
+async function saveLibraryData(drive: any, data: LibraryData) {
+  await saveLibraryMetadata(drive, GOOGLE_DRIVE_FOLDER_ID, normalizeLibraryData(data));
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const session = await auth();
+    if (!session || !session.user?.id) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+    const drive = await getGoogleDriveClient(true);
+
+    const formData = await request.formData();
+    const text = formData.get('text') as string | null;
+    const bookId = formData.get('bookId') as string;
+
+    if (!bookId) {
+      return NextResponse.json({ error: 'Book ID is required' }, { status: 400 });
+    }
+
+    const id = `note_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const note: BookNote = {
+      id,
+      userId: session.user.id,
+      bookId,
+      text: text || undefined,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const libraryData = await getLibraryData(drive);
+    libraryData.notes.push(note);
+    await saveLibraryData(drive, libraryData);
+    return NextResponse.json(note);
+  } catch (error) {
+    console.error('Error creating note:', error);
+    return NextResponse.json(
+      { error: 'Failed to create note' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const session = await auth();
+    if (!session) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+    const drive = await getGoogleDriveClient(true);
+
+    const { id } = await request.json();
+
+    const libraryData = await getLibraryData(drive);
+    const initialLength = libraryData.notes.length;
+    libraryData.notes = libraryData.notes.filter((note) => note.id !== id);
+    if (libraryData.notes.length === initialLength) {
+      return NextResponse.json({ error: 'Note not found' }, { status: 404 });
+    }
+    await saveLibraryData(drive, libraryData);
+    return NextResponse.json({ message: 'Note deleted' });
+  } catch (error) {
+    console.error('Error deleting note:', error);
+    return NextResponse.json(
+      { error: 'Failed to delete note' },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
 <file path="src/app/profile/page.tsx">
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
 import { useSession, signOut } from 'next-auth/react';
+import { useRouter } from 'next/navigation'; // <-- added
 import { bookApi } from '@/lib/api/books';
 import { AcquiredBookNote, BookMetadata, LibraryCollection, LibraryData, UserBookState } from '@/app/types/book';
 import BookGrid from '@/components/BookGrid';
 import BookDetailDrawer from '@/components/BookDetailDrawer';
-import { PencilSimple, Plus, TrashSimple, X } from '@phosphor-icons/react';
+import { ArrowLeft, CaretDown, CaretUp, PencilSimple, Plus, TrashSimple, X } from '@phosphor-icons/react';
 
 type TabKey = 'collections' | 'toAcquire' | 'readBooks';
 
 export default function Profile() {
   const { data: session } = useSession();
+  const router = useRouter(); // <-- added
   const [libraryData, setLibraryData] = useState<LibraryData>({ books: [], notes: [], userBookStates: [], collections: [], booksToAcquire: [] });
   const [loading, setLoading] = useState(true);
   const [selectedBook, setSelectedBook] = useState<BookMetadata | null>(null);
@@ -1929,14 +2329,83 @@ export default function Profile() {
     }
   };
 
+  // --- Local state update helpers ---
+  const updateBookInState = (updatedBook: BookMetadata) => {
+    setLibraryData(prev => ({
+      ...prev,
+      books: prev.books.map(b => b.id === updatedBook.id ? updatedBook : b),
+    }));
+  };
+
+  const updateUserBookStateInState = (updatedState: UserBookState) => {
+    setLibraryData(prev => ({
+      ...prev,
+      userBookStates: prev.userBookStates.map(s =>
+        s.userId === updatedState.userId && s.bookId === updatedState.bookId ? updatedState : s
+      ),
+    }));
+  };
+
+  const updateCollectionInState = (updatedCollection: LibraryCollection) => {
+    setLibraryData(prev => ({
+      ...prev,
+      collections: prev.collections.map(c => c.id === updatedCollection.id ? updatedCollection : c),
+    }));
+  };
+
+  const addCollectionInState = (newCollection: LibraryCollection) => {
+    setLibraryData(prev => ({
+      ...prev,
+      collections: [...prev.collections, newCollection],
+    }));
+  };
+
+  const deleteCollectionInState = (collectionId: string) => {
+    setLibraryData(prev => ({
+      ...prev,
+      collections: prev.collections.filter(c => c.id !== collectionId),
+    }));
+  };
+
+  const addAcquireInState = (newItem: AcquiredBookNote) => {
+    setLibraryData(prev => ({
+      ...prev,
+      booksToAcquire: [...prev.booksToAcquire, newItem],
+    }));
+  };
+
+  const updateAcquireInState = (updatedItem: AcquiredBookNote) => {
+    setLibraryData(prev => ({
+      ...prev,
+      booksToAcquire: prev.booksToAcquire.map(item => item.id === updatedItem.id ? updatedItem : item),
+    }));
+  };
+
+  const deleteAcquireInState = (itemId: string) => {
+    setLibraryData(prev => ({
+      ...prev,
+      booksToAcquire: prev.booksToAcquire.filter(item => item.id !== itemId),
+    }));
+  };
+  // --- end helpers ---
+
   const readBooks = useMemo(() => {
     if (!session?.user?.id) return [];
     const userReadStates = libraryData.userBookStates.filter(
       state => state.userId === session.user.id && state.isRead
     );
-    return userReadStates.map(state =>
-      libraryData.books.find(book => book.id === state.bookId)
-    ).filter(Boolean) as BookMetadata[];
+    // Sort by readAt descending (most recent first)
+    return userReadStates
+      .sort((a, b) => {
+        if (!a.readAt) return 1;
+        if (!b.readAt) return -1;
+        return new Date(b.readAt).getTime() - new Date(a.readAt).getTime();
+      })
+      .map(state => {
+        const book = libraryData.books.find(book => book.id === state.bookId);
+        return book ? { ...book, readAt: state.readAt } : null;
+      })
+      .filter(Boolean) as (BookMetadata & { readAt?: string })[];
   }, [libraryData, session]);
 
   const myCollections = useMemo(() => {
@@ -2020,19 +2489,20 @@ export default function Profile() {
     setIsSubmittingCollection(true);
     try {
       if (editingCollection) {
-        await bookApi.updateCollection(editingCollection.id, {
+        const updated = await bookApi.updateCollection(editingCollection.id, {
           name: collectionForm.name.trim(),
           description: collectionForm.description.trim() || undefined,
         });
+        updateCollectionInState(updated);
       } else {
-        await bookApi.createCollection(
+        const created = await bookApi.createCollection(
           collectionForm.name.trim(),
           collectionForm.description.trim() || undefined
         );
+        addCollectionInState(created);
       }
       setShowCreateCollection(false);
       setEditingCollection(null);
-      await loadLibraryData();
     } catch (err) {
       console.error('Failed to save collection:', err);
       alert('Failed to save collection');
@@ -2045,8 +2515,8 @@ export default function Profile() {
     if (!confirm(`Delete collection "${c.name}"? Books will NOT be deleted, just removed from this collection.`)) return;
     try {
       await bookApi.deleteCollection(c.id);
+      deleteCollectionInState(c.id);
       if (expandedCollectionId === c.id) setExpandedCollectionId(null);
-      await loadLibraryData();
     } catch (err) {
       console.error('Failed to delete collection:', err);
       alert('Failed to delete collection');
@@ -2084,13 +2554,14 @@ export default function Profile() {
         priority: acquireForm.priority,
       };
       if (editingAcquire) {
-        await bookApi.updateBookToAcquire(editingAcquire.id, payload);
+        const updated = await bookApi.updateBookToAcquire(editingAcquire.id, payload);
+        updateAcquireInState(updated);
       } else {
-        await bookApi.addBookToAcquire(payload as any);
+        const created = await bookApi.addBookToAcquire(payload as any);
+        addAcquireInState(created);
       }
       setShowAddAcquire(false);
       setEditingAcquire(null);
-      await loadLibraryData();
     } catch (err) {
       console.error('Failed to save book to acquire:', err);
       alert('Failed to save');
@@ -2103,11 +2574,16 @@ export default function Profile() {
     if (!confirm(`Remove "${item.title}" from your acquire list?`)) return;
     try {
       await bookApi.deleteBookToAcquire(item.id);
-      await loadLibraryData();
+      deleteAcquireInState(item.id);
     } catch (err) {
       console.error('Failed to delete:', err);
       alert('Failed to delete');
     }
+  };
+
+  // Handler for when a collection is created from the BookDetailDrawer
+  const handleCollectionCreated = (newCollection: LibraryCollection) => {
+    addCollectionInState(newCollection);
   };
 
   if (loading) {
@@ -2151,12 +2627,12 @@ export default function Profile() {
       <header className="bg-white border-b border-gray-200 p-4 sticky top-0 z-30">
         <div className="max-w-7xl mx-auto flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-4">
-            <h1 className="text-2xl font-bold text-gray-900">
+            <h1 className="text-xl font-bold text-gray-900">
               <button
-                onClick={() => window.location.href = '/'}
-                className="hover:text-blue-600 transition-colors"
+                onClick={() => router.push('/')} // changed
+                className="cursor-pointer hover:text-blue-600 transition-colors"
               >
-                Biblioteca Malavada
+                biblioteca malavada
               </button>
             </h1>
             <span className="text-gray-400">/</span>
@@ -2165,25 +2641,25 @@ export default function Profile() {
                 <img
                   src={session.user.image}
                   alt={session.user.name || 'User'}
-                  className="w-9 h-9 rounded-full border border-gray-200"
+                  className="w-8 h-8 rounded-full border border-gray-200"
                 />
               )}
               <div>
                 <div className="text-sm font-semibold text-gray-900">{session.user?.name}</div>
-                <div className="text-xs text-gray-500">Your profile & collections</div>
               </div>
             </div>
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={() => window.location.href = '/'}
-              className="cursor-pointer bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 transition-colors text-sm"
+              onClick={() => router.push('/')} // changed
+              className="flex gap-1 items-center cursor-pointer bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 transition-colors text-xs"
             >
-              ← Library
+              <ArrowLeft size={12} />
+              Library
             </button>
             <button
               onClick={() => signOut()}
-              className="cursor-pointer bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 transition-colors text-sm"
+              className="text-xs cursor-pointer bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 transition-colors text-sm"
             >
               Sign out
             </button>
@@ -2191,22 +2667,22 @@ export default function Profile() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 py-8">
-        <div className="flex items-center gap-2 mb-6 border-b border-gray-200 pb-2 overflow-x-auto">
+      <main className="flex-1 space-y-3 p-4">
+        <div className="pb-3 flex items-center gap-2 border-b border-gray-200 overflow-x-auto">
           <TabButton tab="collections" label="All Collections" count={myCollections.length} />
           <TabButton tab="toAcquire" label="Wishlist" count={booksToAcquire.length} />
           <TabButton tab="readBooks" label="Read Books" count={readBooks.length} />
         </div>
 
         {activeTab === 'collections' && (
-          <section>
+          <>
             <div className="flex items-center justify-between flex-wrap gap-3">
-              <div className="text-2xl font-bold text-gray-900">All Collections</div>
+              <div className="text-xl font-bold text-gray-900">All Collections</div>
               <button
                 onClick={openCreateCollection}
-                className="cursor-pointer inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm font-medium shadow-sm"
+                className="text-xs cursor-pointer inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm font-medium shadow-sm"
               >
-                <Plus size={18} /> New Collection
+                <Plus size={12} /> New Collection
               </button>
             </div>
 
@@ -2214,9 +2690,9 @@ export default function Profile() {
               <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
                 <button
                   onClick={openCreateCollection}
-                  className="cursor-pointer inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm"
+                  className="text-xs cursor-pointer inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm"
                 >
-                  <Plus size={18} /> Create First Collection
+                  <Plus size={12} /> Create First Collection
                 </button>
               </div>
             ) : (
@@ -2231,99 +2707,84 @@ export default function Profile() {
                       className={`bg-white rounded-xl border transition-all ${isExpanded ? 'border-blue-300 ring-2 ring-blue-100 md:col-span-2 lg:col-span-3' : 'border-gray-200 hover:shadow-sm hover:border-gray-300'
                         }`}
                     >
-                      <div className="p-5">
-                        <div className="flex items-start justify-between gap-3 mb-2">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <h3 className="text-lg font-semibold text-gray-900 truncate">
-                                {collection.name}
-                              </h3>
-                              <span className={`inline-flex items-center px-2 py-0.5 text-xs rounded-full border ${isMine ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-600 border-gray-200'}`}>
-                                {isMine ? 'Yours' : 'Shared'}
-                              </span>
+                      <div className="flex items-center justify-between gap-3 p-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <div onClick={() => setExpandedCollectionId(isExpanded ? null : collection.id)} className="cursor-pointer flex gap-2 items-center text-lg font-semibold text-gray-900 truncate">
+                              {!isExpanded ? <CaretDown size={16} /> : <CaretUp size={16} />}
+                              {collection.name}
                             </div>
-                            {collection.description && (
-                              <p className="text-sm text-gray-600 mt-1 line-clamp-2">{collection.description}</p>
-                            )}
                           </div>
-                          <div className="flex-shrink-0 flex items-center gap-1">
-                            {isMine && (
-                              <>
-                                <button
-                                  onClick={() => openEditCollection(collection)}
-                                  className="cursor-pointer p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
-                                  title="Edit collection"
-                                >
-                                  <PencilSimple size={16} />
-                                </button>
-                                <button
-                                  onClick={() => deleteCollection(collection)}
-                                  className="cursor-pointer p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
-                                  title="Delete collection"
-                                >
-                                  <TrashSimple size={16} />
-                                </button>
-                              </>
-                            )}
-                          </div>
+                          {collection.description && (
+                            <p className="text-sm text-gray-600 mt-1 line-clamp-2">{collection.description}</p>
+                          )}
                         </div>
-                        <div className="mt-3 flex items-center justify-between">
-                          <div className="text-sm text-gray-500">
+                        <div className="flex items-center gap-1">
+                          <div className="text-xs text-gray-500 p-1">
                             {books.length} book{books.length !== 1 ? 's' : ''}
                           </div>
                           <button
-                            onClick={() => setExpandedCollectionId(isExpanded ? null : collection.id)}
-                            className="cursor-pointer text-sm text-blue-600 hover:text-blue-800 font-medium"
+                            onClick={() => openEditCollection(collection)}
+                            className="cursor-pointer p-1 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
+                            title="Edit collection"
                           >
-                            {isExpanded ? 'Hide books' : 'View books →'}
+                            <PencilSimple size={16} />
+                          </button>
+                          <button
+                            onClick={() => deleteCollection(collection)}
+                            className="cursor-pointer p-1 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                            title="Delete collection"
+                          >
+                            <TrashSimple size={16} />
                           </button>
                         </div>
                       </div>
-                      {isExpanded && (
-                        <div className="border-t border-gray-100 bg-gray-50/50 p-5 rounded-b-xl">
-                          {books.length === 0 ? (
-                            <div className="text-center py-8 text-sm text-gray-500">
-                              <div className="text-3xl mb-2">📖</div>
-                              No books in this collection yet.
-                              <div className="mt-2 text-xs text-gray-400">
-                                Go to the library, open a book, and add it to "{collection.name}" from the details drawer.
+                      {
+                        isExpanded && (
+                          <div className="border-t border-gray-100 bg-gray-50/50 p-5 rounded-b-xl">
+                            {books.length === 0 ? (
+                              <div className="text-center py-8 text-sm text-gray-500">
+                                <div className="text-3xl mb-2">📖</div>
+                                No books in this collection yet.
+                                <div className="mt-2 text-xs text-gray-400">
+                                  Go to the library, open a book, and add it to "{collection.name}" from the details drawer.
+                                </div>
                               </div>
-                            </div>
-                          ) : (
-                            <BookGrid books={books} onBookClick={handleBookClick} />
-                          )}
-                        </div>
-                      )}
+                            ) : (
+                              <BookGrid books={books} onBookClick={handleBookClick} />
+                            )}
+                          </div>
+                        )
+                      }
                     </div>
                   );
                 })}
               </div>
             )}
-          </section>
+          </>
         )}
 
         {activeTab === 'toAcquire' && (
-          <section>
-            <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+          <>
+            <div className="flex items-center justify-between flex-wrap gap-3">
               <div>
-                <h2 className="text-2xl font-bold text-gray-900">Wishlist</h2>
+                <h2 className="text-xl font-bold text-gray-900">Wishlist</h2>
               </div>
               <button
                 onClick={openAddAcquire}
-                className="cursor-pointer inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm font-medium shadow-sm"
+                className="text-xs cursor-pointer inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm font-medium shadow-sm"
               >
-                <Plus size={18} /> Add Book
+                <Plus size={12} /> Add Book
               </button>
             </div>
 
             {booksToAcquire.length === 0 ? (
               <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">Your wish list is empty</h3>
                 <button
                   onClick={openAddAcquire}
-                  className="cursor-pointer inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm"
+                  className="text-xs cursor-pointer inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm"
                 >
-                  <Plus size={18} /> Add First Book
+                  <Plus size={12} /> Add First Book
                 </button>
               </div>
             ) : (
@@ -2375,203 +2836,241 @@ export default function Profile() {
                 ))}
               </div>
             )}
-          </section>
+          </>
         )}
 
         {activeTab === 'readBooks' && (
-          <section className="mb-12">
-            <div className="mb-6">
-              <div className="text-2xl font-bold text-gray-900">Read Books</div>
-            </div>
-            {readBooks.length !== 0 &&
-              <BookGrid books={readBooks} onBookClick={handleBookClick} />
-            }
-          </section>
+          <>
+            <div className="text-xl font-bold text-gray-900">Read Books</div>
+            {readBooks.length !== 0 ? (
+              <div className="space-y-3">
+                {readBooks.sort((a, b) => b?.readAt - a?.readAt).map(book => (
+                  <div
+                    key={book.id}
+                    className="bg-white rounded-lg border border-gray-200 p-4 flex items-start gap-4 hover:shadow-sm transition-shadow cursor-pointer"
+                    onClick={() => handleBookClick(book)}
+                  >
+                    <div className="w-16 h-24 flex-shrink-0 bg-gray-100 rounded overflow-hidden">
+                      {book.coverFileId ? (
+                        <img
+                          src={`/api/utils/cover-image?fileId=${book.coverFileId}`}
+                          alt={book.title}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-xs text-center p-1">
+                          {book.title.slice(0, 20)}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-gray-900">{book.title}</h3>
+                      <p className="text-sm text-gray-600">by {book.author}</p>
+                      {book.readAt && (
+                        <p className="text-xs text-gray-400 mt-1">
+                          Read on {new Date(book.readAt).toLocaleDateString()}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">No books read</h3>
+              </div>
+            )}
+          </>
         )}
       </main>
 
-      {showCreateCollection && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => !isSubmittingCollection && setShowCreateCollection(false)}>
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-              <h2 className="text-xl font-semibold text-gray-900">
-                {editingCollection ? 'Edit Collection' : 'Create New Collection'}
-              </h2>
-              <button
-                onClick={() => setShowCreateCollection(false)}
-                disabled={isSubmittingCollection}
-                className="cursor-pointer p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors disabled:opacity-50"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <form onSubmit={submitCollection} className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Collection Name <span className="text-red-500">*</span>
-                </label>
-                <input
-                  autoFocus
-                  value={collectionForm.name}
-                  onChange={e => setCollectionForm(f => ({ ...f, name: e.target.value }))}
-                  placeholder="e.g. Latin American Feminist Theory"
-                  className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                  maxLength={80}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Description <span className="text-gray-400 font-normal">(optional)</span>
-                </label>
-                <textarea
-                  value={collectionForm.description}
-                  onChange={e => setCollectionForm(f => ({ ...f, description: e.target.value }))}
-                  placeholder="What's this collection about? Who should read it?"
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                  maxLength={500}
-                />
-              </div>
-              <div className="flex items-center justify-end gap-3 pt-2">
+      {
+        showCreateCollection && (
+          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => !isSubmittingCollection && setShowCreateCollection(false)}>
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+              <div className="p-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                <h2 className="text-md font-semibold text-gray-900">
+                  {editingCollection ? 'Edit Collection' : 'Create New Collection'}
+                </h2>
                 <button
-                  type="button"
                   onClick={() => setShowCreateCollection(false)}
                   disabled={isSubmittingCollection}
-                  className="cursor-pointer px-4 py-2 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors disabled:opacity-50"
+                  className="cursor-pointer p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors disabled:opacity-50"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmittingCollection || !collectionForm.name.trim()}
-                  className="cursor-pointer px-5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors disabled:opacity-50 shadow-sm"
-                >
-                  {isSubmittingCollection ? 'Saving…' : editingCollection ? 'Save Changes' : 'Create Collection'}
+                  <X size={20} />
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {showAddAcquire && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => !isSubmittingAcquire && setShowAddAcquire(false)}>
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-              <h2 className="text-xl font-semibold text-gray-900">
-                {editingAcquire ? 'Edit Book to Acquire' : 'Add Book to Acquire'}
-              </h2>
-              <button
-                onClick={() => setShowAddAcquire(false)}
-                disabled={isSubmittingAcquire}
-                className="cursor-pointer p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors disabled:opacity-50"
-              >
-                <X size={20} />
-              </button>
+              <form onSubmit={submitCollection} className="p-4 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Collection Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    autoFocus
+                    value={collectionForm.name}
+                    onChange={e => setCollectionForm(f => ({ ...f, name: e.target.value }))}
+                    placeholder="e.g. Latin American Feminist Theory"
+                    className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                    maxLength={80}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Description <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <textarea
+                    value={collectionForm.description}
+                    onChange={e => setCollectionForm(f => ({ ...f, description: e.target.value }))}
+                    placeholder="What's this collection about? Who should read it?"
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    maxLength={500}
+                  />
+                </div>
+                <div className="flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateCollection(false)}
+                    disabled={isSubmittingCollection}
+                    className="cursor-pointer px-4 py-2 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingCollection || !collectionForm.name.trim()}
+                    className="cursor-pointer px-5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors disabled:opacity-50 shadow-sm"
+                  >
+                    {isSubmittingCollection ? 'Saving…' : editingCollection ? 'Save Changes' : 'Create Collection'}
+                  </button>
+                </div>
+              </form>
             </div>
-            <form onSubmit={submitAcquire} className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Title <span className="text-red-500">*</span>
-                </label>
-                <input
-                  autoFocus
-                  value={acquireForm.title}
-                  onChange={e => setAcquireForm(f => ({ ...f, title: e.target.value }))}
-                  placeholder="Book title"
-                  className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                />
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Author</label>
-                  <input
-                    value={acquireForm.author}
-                    onChange={e => setAcquireForm(f => ({ ...f, author: e.target.value }))}
-                    placeholder="e.g. bell hooks"
-                    className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">ISBN</label>
-                  <input
-                    value={acquireForm.isbn}
-                    onChange={e => setAcquireForm(f => ({ ...f, isbn: e.target.value }))}
-                    placeholder="Optional ID"
-                    className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['low', 'medium', 'high'] as const).map(p => (
-                    <button
-                      key={p}
-                      type="button"
-                      onClick={() => setAcquireForm(f => ({ ...f, priority: p }))}
-                      className={`cursor-pointer py-2 rounded-md border text-sm font-medium capitalize transition-all ${acquireForm.priority === p
-                        ? priorityStyles[p] + ' ring-2 ring-offset-1'
-                        : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-                        }`}
-                    >
-                      {p === 'high' && '🔴 '}{p === 'medium' && '🟡 '}{p === 'low' && '🔵 '}{p}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Notes <span className="text-gray-400 font-normal">(optional)</span>
-                </label>
-                <textarea
-                  value={acquireForm.notes}
-                  onChange={e => setAcquireForm(f => ({ ...f, notes: e.target.value }))}
-                  placeholder="Where did you hear about it? Which edition? Price? Bookseller name?"
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                />
-              </div>
-              <div className="flex items-center justify-end gap-3 pt-2">
+          </div>
+        )
+      }
+
+      {
+        showAddAcquire && (
+          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => !isSubmittingAcquire && setShowAddAcquire(false)}>
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+              <div className="p-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                <h2 className="text-md font-semibold text-gray-900">
+                  {editingAcquire ? 'Edit Book to Acquire' : 'Add Book to Acquire'}
+                </h2>
                 <button
-                  type="button"
                   onClick={() => setShowAddAcquire(false)}
                   disabled={isSubmittingAcquire}
-                  className="cursor-pointer px-4 py-2 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors disabled:opacity-50"
+                  className="cursor-pointer p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors disabled:opacity-50"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmittingAcquire || !acquireForm.title.trim()}
-                  className="cursor-pointer px-5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors disabled:opacity-50 shadow-sm"
-                >
-                  {isSubmittingAcquire ? 'Saving…' : editingAcquire ? 'Save Changes' : 'Add to List'}
+                  <X size={20} />
                 </button>
               </div>
-            </form>
+              <form onSubmit={submitAcquire} className="p-4 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Title <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    autoFocus
+                    value={acquireForm.title}
+                    onChange={e => setAcquireForm(f => ({ ...f, title: e.target.value }))}
+                    placeholder="Book title"
+                    className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Author</label>
+                    <input
+                      value={acquireForm.author}
+                      onChange={e => setAcquireForm(f => ({ ...f, author: e.target.value }))}
+                      placeholder="e.g. bell hooks"
+                      className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">ISBN</label>
+                    <input
+                      value={acquireForm.isbn}
+                      onChange={e => setAcquireForm(f => ({ ...f, isbn: e.target.value }))}
+                      placeholder="Optional ID"
+                      className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['low', 'medium', 'high'] as const).map(p => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setAcquireForm(f => ({ ...f, priority: p }))}
+                        className={`cursor-pointer py-2 rounded-md border text-sm font-medium capitalize transition-all ${acquireForm.priority === p
+                          ? priorityStyles[p] + ' ring-2 ring-offset-1'
+                          : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                          }`}
+                      >
+                        {p === 'high'}{p === 'medium'}{p === 'low'}{p}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Notes <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <textarea
+                    value={acquireForm.notes}
+                    onChange={e => setAcquireForm(f => ({ ...f, notes: e.target.value }))}
+                    placeholder="Where did you hear about it? Which edition? Price? Bookseller name?"
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  />
+                </div>
+                <div className="flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddAcquire(false)}
+                    disabled={isSubmittingAcquire}
+                    className="cursor-pointer px-4 py-2 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingAcquire || !acquireForm.title.trim()}
+                    className="cursor-pointer px-5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors disabled:opacity-50 shadow-sm"
+                  >
+                    {isSubmittingAcquire ? 'Saving…' : editingAcquire ? 'Save Changes' : 'Add to List'}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       <BookDetailDrawer
         book={selectedBook}
         isOpen={isDrawerOpen}
         onClose={handleCloseDrawer}
         onReadBook={handleReadBook}
-        onBookUpdated={loadLibraryData}
+        onBookUpdated={updateBookInState}
         notes={libraryData.notes.filter(note => note.bookId === (selectedBook?.id || ''))}
         userBookState={session ? libraryData.userBookStates.find(state => state.bookId === (selectedBook?.id || '') && state.userId === session.user?.id) : undefined}
         onUpdateUserBookState={session ? async (bookId, isRead, isInReadingList) => {
-          await bookApi.updateUserBookState(bookId, isRead, isInReadingList);
-          await loadLibraryData();
+          const updated = await bookApi.updateUserBookState(bookId, isRead, isInReadingList);
+          updateUserBookStateInState(updated);
         } : undefined}
         allCollections={libraryData.collections}
         allGenres={uniqueGenres}
+        onCollectionCreated={handleCollectionCreated} // <-- added
       />
-    </div>
+    </div >
   );
 }
 </file>
@@ -2589,7 +3088,6 @@ export interface BookNote {
   userId: string;
   bookId: string;
   text?: string;
-  imageUrl?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -2637,7 +3135,8 @@ export interface BookMetadata {
   publisher?: string;
   language?: string;
   pages?: number;
-  coverImage?: string;
+  coverImage?: string;        // legacy – kept for backward compatibility
+  coverFileId?: string;       // new: Drive file ID for the cover image
   filePath?: string;
   fileType: 'epub' | 'pdf' | 'acsm' | 'physical';
   collections: string[];
@@ -2648,7 +3147,7 @@ export interface BookMetadata {
 }
 
 export interface UploadBookRequest {
-  metadata: Omit<BookMetadata, 'id' | 'createdAt' | 'updatedAt' | 'filePath'>;
+  metadata: Omit<BookMetadata, 'id' | 'createdAt' | 'updatedAt' | 'filePath' | 'coverFileId'>;
   file?: File;
 }
 
@@ -2672,21 +3171,27 @@ interface BookGridProps {
 }
 
 function BookGrid({ books, onBookClick }: BookGridProps) {
+    const getCoverUrl = (book: BookMetadata): string => {
+        if (book.coverFileId) {
+            return `/api/utils/cover-image?fileId=${book.coverFileId}`;
+        }
+        return book.coverImage || ''; // fallback for legacy books
+    };
+
     return (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 p-4">
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-6 gap-4">
             {books.map((book) => (
                 <div
                     key={book.id}
                     className="group cursor-pointer transition-transform hover:scale-105"
                     onClick={() => onBookClick(book)}
                 >
-                    <div className="bg-gray-200 rounded-lg overflow-hidden shadow-md" style={{ aspectRatio: '3 / 4' }}>
-                        {book.coverImage ? (
+                    <div className="bg-gray-200 rounded-xs overflow-hidden shadow-md" style={{ aspectRatio: '3 / 4' }}>
+                        {getCoverUrl(book) ? (
                             <img
-                                src={book.coverImage}
+                                src={getCoverUrl(book)}
                                 alt={book.title}
                                 className="w-full h-full object-cover"
-
                             />
                         ) : (
                             <div className="w-full h-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center">
@@ -2701,13 +3206,13 @@ function BookGrid({ books, onBookClick }: BookGridProps) {
                         <h3 className="text-black font-medium text-sm leading-tight line-clamp-2">
                             {book.title}
                         </h3>
-                        <p className="text-gray-500 text-xs">
+                        <p className="text-gray-500 text-xs line-clamp-1">
                             {book.author}
                         </p>
-                        <div className="flex flex-wrap gap-1 mt-1">
+                        <div className="flex flex-wrap gap-1 mt-1 items-center">
                             {book.genres && (
                                 <>
-                                    {book.genres.map((genre, index) => (
+                                    {book.genres.slice(0, 2).map((genre, index) => (
                                         <span
                                             key={index}
                                             className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full"
@@ -2725,7 +3230,7 @@ function BookGrid({ books, onBookClick }: BookGridProps) {
                             {book.collections && (
                                 <>
                                     {
-                                        book.collections.map((genre, index) => (
+                                        book.collections.slice(0, 2).map((genre, index) => (
                                             <span
                                                 key={index}
                                                 className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full"
@@ -2754,7 +3259,7 @@ export default BookGrid;
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { BookMetadata, LibraryData, BookNote, UserBookState } from '@/app/types/book';
+import { BookMetadata, LibraryData, BookNote, UserBookState, LibraryCollection } from '@/app/types/book';
 import { bookApi } from '@/lib/api/books';
 import BookGrid from './BookGrid';
 import SearchBar from './SearchBar';
@@ -2762,9 +3267,11 @@ import BookDetailDrawer from './BookDetailDrawer';
 import { UploadBook } from './UploadBook';
 import MultiSelect from './MultiSelect';
 import { useSession, signIn, signOut } from 'next-auth/react';
+import { useRouter } from 'next/navigation'; // <-- added
 
 function Library() {
   const { data: session, status } = useSession();
+  const router = useRouter(); // <-- added
   const [libraryData, setLibraryData] = useState<LibraryData>({ books: [], notes: [], userBookStates: [], collections: [], booksToAcquire: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -2778,7 +3285,6 @@ function Library() {
   useEffect(() => {
     loadLibraryData();
   }, []);
-
 
   useEffect(() => {
     if (selectedBook) {
@@ -2801,6 +3307,60 @@ function Library() {
       setLoading(false);
     }
   };
+
+  // --- Local state update helpers ---
+  const updateBookInState = (updatedBook: BookMetadata) => {
+    setLibraryData(prev => ({
+      ...prev,
+      books: prev.books.map(b => b.id === updatedBook.id ? updatedBook : b),
+    }));
+  };
+
+  const updateUserBookStateInState = (updatedState: UserBookState) => {
+    setLibraryData(prev => ({
+      ...prev,
+      userBookStates: prev.userBookStates.map(s =>
+        s.userId === updatedState.userId && s.bookId === updatedState.bookId ? updatedState : s
+      ),
+    }));
+  };
+
+  const addNoteInState = (newNote: BookNote) => {
+    setLibraryData(prev => ({
+      ...prev,
+      notes: [...prev.notes, newNote],
+    }));
+  };
+
+  const deleteNoteInState = (noteId: string) => {
+    setLibraryData(prev => ({
+      ...prev,
+      notes: prev.notes.filter(n => n.id !== noteId),
+    }));
+  };
+
+  const deleteBookInState = (bookId: string) => {
+    setLibraryData(prev => ({
+      ...prev,
+      books: prev.books.filter(b => b.id !== bookId),
+    }));
+    setIsDrawerOpen(false);
+  };
+
+  const addBookInState = (newBook: BookMetadata) => {
+    setLibraryData(prev => ({
+      ...prev,
+      books: [...prev.books, newBook],
+    }));
+  };
+
+  const addCollectionInState = (newCollection: LibraryCollection) => {
+    setLibraryData(prev => ({
+      ...prev,
+      collections: [...prev.collections, newCollection],
+    }));
+  };
+  // --- end helpers ---
 
   const uniqueCollections = useMemo(() => {
     const collections = new Set<string>();
@@ -2840,11 +3400,9 @@ function Library() {
 
   const handleReadBook = async (book: BookMetadata) => {
     if (book.fileType === 'physical') {
-      // For physical books, we might want to show more details or open external links
       console.log('Viewing physical book details:', book);
     } else {
       try {
-        // For digital books, get download URL
         const downloadUrl = await bookApi.downloadBook(book.id);
         window.open(downloadUrl, '_blank');
       } catch (err) {
@@ -2854,20 +3412,52 @@ function Library() {
     }
   };
 
-  const handleBookUploaded = () => {
+  const handleBookUploaded = (newBook: BookMetadata) => {
     setIsUploadModalOpen(false);
-    loadLibraryData(); // Reload books after upload
+    addBookInState(newBook);
   };
 
   const handleDeleteBook = async (book: BookMetadata) => {
     try {
       await bookApi.deleteBook(book.id);
-      loadLibraryData(); // Reload books after delete
-      setIsDrawerOpen(false); // Close the drawer
+      deleteBookInState(book.id);
     } catch (err) {
       console.error('Error deleting book:', err);
       alert('Failed to delete book');
     }
+  };
+
+  const handleUpdateUserBookState = async (bookId: string, isRead?: boolean, isInReadingList?: boolean) => {
+    if (!session) return;
+    try {
+      const updated = await bookApi.updateUserBookState(bookId, isRead, isInReadingList);
+      updateUserBookStateInState(updated);
+    } catch (err) {
+      console.error('Failed to update user book state:', err);
+    }
+  };
+
+  const handleCreateNote = async (bookId: string, text?: string) => {
+    if (!session) return;
+    try {
+      const newNote = await bookApi.createNote(bookId, text);
+      addNoteInState(newNote);
+    } catch (err) {
+      console.error('Failed to create note:', err);
+    }
+  };
+
+  const handleDeleteNote = async (noteId: string) => {
+    try {
+      await bookApi.deleteNote(noteId);
+      deleteNoteInState(noteId);
+    } catch (err) {
+      console.error('Failed to delete note:', err);
+    }
+  };
+
+  const handleCollectionCreated = (newCollection: LibraryCollection) => {
+    addCollectionInState(newCollection);
   };
 
   if (loading) {
@@ -2899,29 +3489,27 @@ function Library() {
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b border-gray-200 p-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <h1 className="text-3xl font-bold text-gray-900">Biblioteca Malavada</h1>
+          <h1 className="text-xl font-bold text-gray-900">biblioteca malavada</h1>
           <div className="flex items-center gap-4">
-            {session && (
-              <button
-                onClick={() => setIsUploadModalOpen(true)}
-                className="cursor-pointer bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors"
-              >
-                Upload Book
-              </button>
-            )}
             {session ? (
               <>
                 {session.user?.image && (
                   <img
                     src={session.user.image}
                     alt={session.user.name || 'User'}
-                    className="w-10 h-10 rounded-full cursor-pointer"
-                    onClick={() => window.location.href = '/profile'}
+                    className="text-xs w-8 h-8 rounded-full cursor-pointer"
+                    onClick={() => router.push('/profile')} // changed
                   />
                 )}
                 <button
+                  onClick={() => setIsUploadModalOpen(true)}
+                  className="text-xs cursor-pointer bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors"
+                >
+                  Upload Book
+                </button>
+                <button
                   onClick={() => signOut()}
-                  className="cursor-pointer bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 transition-colors"
+                  className="text-xs cursor-pointer bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 transition-colors"
                 >
                   Sign out
                 </button>
@@ -2943,51 +3531,37 @@ function Library() {
         onChange={setSearchQuery}
         placeholder="Search by title or author..."
       />
-
-      <div className="flex flex-wrap items-center gap-4 p-4 max-w-7xl mx-auto">
-        <MultiSelect
-          options={uniqueCollections}
-          selected={selectedCollections}
-          onChange={setSelectedCollections}
-          placeholder="All Collections"
-          label="Collections"
-        />
-        <MultiSelect
-          options={uniqueGenres}
-          selected={selectedGenres}
-          onChange={setSelectedGenres}
-          placeholder="All Genres"
-          label="Genres"
-        />
-      </div>
-
-      <main className="flex-1">
-        <div className="max-w-7xl mx-auto">
-          <div className="px-4 py-6">
-            <div>
-              <p className="text-gray-600 mt-1">
-                {libraryData.books.length} book{libraryData.books.length !== 1 ? 's' : ''} total
-                {searchQuery && ` • ${filteredBooks.length} found`}
-              </p>
-            </div>
-          </div>
-
-          {filteredBooks.length === 0 ? (
-            <div className="text-center py-12">
-              <h3 className="text-lg font-medium text-gray-900 mb-2">
-                {searchQuery ? 'No books found' : 'No books in your library'}
-              </h3>
-              <p className="text-gray-500">
-                {searchQuery
-                  ? 'Try adjusting your search terms'
-                  : 'Start by uploading your first book'}
-              </p>
-            </div>
-          ) : (
-            <BookGrid books={filteredBooks} onBookClick={handleBookClick} />
-          )}
+      <main className="p-4 flex-1 flex-col space-y-3 items-start justify-start pb-8">
+        <div className="flex flex-wrap gap-3">
+          <MultiSelect
+            options={uniqueGenres}
+            selected={selectedGenres}
+            onChange={setSelectedGenres}
+            placeholder="All Genres"
+            label="Genres"
+          />
+          <MultiSelect
+            options={uniqueCollections}
+            selected={selectedCollections}
+            onChange={setSelectedCollections}
+            placeholder="All Collections"
+            label="Collections"
+          />
         </div>
-      </main>
+
+        <p className="text-gray-600 text-sm">
+          {libraryData.books.length} book{libraryData.books.length !== 1 ? 's' : ''} total
+          {searchQuery && ` • ${filteredBooks.length} found`}
+        </p>
+
+        {filteredBooks.length === 0 ? (
+          <h3 className="text-center text-lg font-medium text-gray-900 mb-2">
+            {searchQuery ? 'No books found' : 'No books in your library'}
+          </h3>
+        ) : (
+          <BookGrid books={filteredBooks} onBookClick={handleBookClick} />
+        )}
+      </main >
 
       <BookDetailDrawer
         book={selectedBook}
@@ -2995,47 +3569,44 @@ function Library() {
         onClose={handleCloseDrawer}
         onReadBook={handleReadBook}
         onDeleteBook={session ? handleDeleteBook : undefined}
-        onBookUpdated={loadLibraryData}
+        onBookUpdated={updateBookInState}
         notes={libraryData.notes.filter(note => note.bookId === (selectedBook?.id || ''))}
         userBookState={session ? libraryData.userBookStates.find(state => state.bookId === (selectedBook?.id || '') && state.userId === session.user?.id) : undefined}
-        onUpdateUserBookState={session ? async (bookId, isRead, isInReadingList) => {
-          await bookApi.updateUserBookState(bookId, isRead, isInReadingList);
-          await loadLibraryData();
-        } : undefined}
-        onCreateNote={session ? async (bookId, text, image) => {
-          await bookApi.createNote(bookId, text, image);
-          await loadLibraryData();
-        } : undefined}
-        onDeleteNote={session ? async (noteId) => {
-          await bookApi.deleteNote(noteId);
-          await loadLibraryData();
-        } : undefined}
+        onUpdateUserBookState={session ? handleUpdateUserBookState : undefined}
+        onCreateNote={session ? handleCreateNote : undefined}
+        onDeleteNote={session ? handleDeleteNote : undefined}
         allCollections={libraryData.collections}
         allGenres={uniqueGenres}
-        onCollectionsChanged={loadLibraryData}
+        onCollectionCreated={handleCollectionCreated}
       />
 
-      {isUploadModalOpen && session && (
-        <div className="text-black fixed inset-0 bg-opacity-20 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-xl">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-semibold">Upload Book</h2>
-                <button
-                  onClick={() => setIsUploadModalOpen(false)}
-                  className="cursor-pointer p-2"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+      {
+        isUploadModalOpen && session && (
+          <div className="text-black fixed inset-0 bg-opacity-20 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-xl">
+              <div className="p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-xl font-semibold">Upload Book</h2>
+                  <button
+                    onClick={() => setIsUploadModalOpen(false)}
+                    className="cursor-pointer p-2"
+                  >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                <UploadBook
+                  onUploadComplete={handleBookUploaded}
+                  collectionsOptions={libraryData.collections.map(c => c.name)}
+                  genresOptions={uniqueGenres}
+                />
               </div>
-              <UploadBook onUploadComplete={handleBookUploaded} />
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )
+      }
+    </div >
   );
 }
 
@@ -3169,7 +3740,7 @@ function MultiSelect({ options, selected, onChange, placeholder = "Select option
                   e.stopPropagation();
                   if (!disabled) removeOption(option);
                 }}
-                className="text-blue-600 hover:text-blue-800 leading-none"
+                className="flex items-center cursor-pointer text-blue-600 hover:text-blue-800 leading-none"
                 tabIndex={-1}
               >
                 ×
@@ -3188,7 +3759,7 @@ function MultiSelect({ options, selected, onChange, placeholder = "Select option
               onKeyDown={handleKeyDown}
               onFocus={() => setIsOpen(true)}
               placeholder={selected.length === 0 ? placeholder : ''}
-              className="flex-1 min-w-[120px] outline-none bg-transparent text-sm py-1"
+              className="flex-1 min-w-[120px] outline-none bg-transparent text-sm"
             />
           )}
         </div>
@@ -3212,16 +3783,15 @@ function MultiSelect({ options, selected, onChange, placeholder = "Select option
             filteredOptions.map(option => (
               <div
                 key={option}
-                className={`px-3 py-2 cursor-pointer hover:bg-gray-100 ${
-                  selected.includes(option) ? 'bg-blue-50' : ''
-                }`}
+                className={`px-3 py-2 cursor-pointer hover:bg-gray-100 ${selected.includes(option) ? 'bg-blue-50' : ''
+                  }`}
                 onClick={() => toggleOption(option)}
               >
                 <div className="flex items-center">
                   <input
                     type="checkbox"
                     checked={selected.includes(option)}
-                    onChange={() => {}}
+                    onChange={() => { }}
                     className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 mr-2"
                   />
                   <span>{option}</span>
@@ -3305,21 +3875,24 @@ export const bookApi = {
     return response.json();
   },
 
-  async updateBook(id: string, metadata: Partial<BookMetadata>, p0: File | undefined): Promise<BookMetadata> {
+  async updateBook(id: string, metadata: Partial<BookMetadata>, coverFile?: File): Promise<BookMetadata> {
+    const formData = new FormData();
+    formData.append('metadata', JSON.stringify(metadata));
+    if (coverFile) {
+      formData.append('coverFile', coverFile);
+    }
     const response = await fetch(`${API_BASE}/${id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(metadata),
+      body: formData,
     });
     if (!response.ok) throw new Error('Failed to update book');
     return response.json();
   },
 
-  async createNote(bookId: string, text?: string, image?: File): Promise<BookNote> {
+  async createNote(bookId: string, text?: string): Promise<BookNote> {
     const formData = new FormData();
     formData.append('bookId', bookId);
     if (text) formData.append('text', text);
-    if (image) formData.append('image', image);
     const response = await fetch('/api/notes', { method: 'POST', body: formData });
     if (!response.ok) throw new Error('Failed to create note');
     return response.json();
@@ -3430,6 +4003,46 @@ import { PDFDocument } from 'pdf-lib';
 import JSZip from 'jszip';
 
 let serviceAccountClient: JWT | null = null;
+
+/**
+ * Helper to find or create a subfolder inside a given parent folder.
+ */
+async function findOrCreateSubfolder(drive: any, parentId: string, name: string): Promise<string> {
+  const res = await drive.files.list({
+    q: `'${parentId}' in parents and name='${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    fields: 'files(id)',
+  });
+  if (res.data.files && res.data.files.length > 0) {
+    return res.data.files[0].id;
+  }
+  const folder = await drive.files.create({
+    resource: {
+      name,
+      mimeType: 'application/vnd.google-apps.folder',
+      parents: [parentId],
+    },
+    fields: 'id',
+  });
+  return folder.data.id;
+}
+
+/**
+ * Upload a cover image to the images/ subfolder of the library.
+ * Returns the file ID.
+ */
+export async function uploadCoverImage(
+  drive: any,
+  folderId: string,
+  bookId: string,
+  imageBuffer: Buffer,
+  mimeType: string = 'image/jpeg'
+): Promise<string> {
+  const imagesFolderId = await findOrCreateSubfolder(drive, folderId, 'images');
+  const ext = mimeType.includes('png') ? 'png' : (mimeType.includes('webp') ? 'webp' : 'jpg');
+  const fileName = `${bookId}-cover.${ext}`;
+  const file = await uploadFileToDrive(drive, imagesFolderId, fileName, mimeType, imageBuffer);
+  return file.id;
+}
 
 async function refreshAccessToken(refreshToken: string): Promise<{ accessToken: string; expiresAt: number } | null> {
   try {
@@ -4258,333 +4871,6 @@ export async function getFileWebViewLink(drive: any, fileId: string) {
 }
 </file>
 
-<file path="src/lib/metadataExtractor.ts">
-import { BookMetadata } from '@/app/types/book';
-
-export function extractMetadataFromFilename(filename: string): Partial<BookMetadata> {
-  const metadata: Partial<BookMetadata> = {};
-
-  const patterns = [
-    // Pattern: Author - Title (Year).ext
-    /^(.*?)\s*-\s*(.*?)\s*\((\d{4})\)\.[^.]+$/i,
-    // Pattern: Title - Author (Year).ext
-    /^(.*?)\s*-\s*(.*?)\s*\((\d{4})\)\.[^.]+$/i,
-    // Pattern: Author - Title.ext
-    /^(.*?)\s*-\s*(.*?)\.[^.]+$/i,
-    // Pattern: Title by Author.ext
-    /^(.*?)\s+by\s+(.*?)\.[^.]+$/i,
-  ];
-
-  for (const pattern of patterns) {
-    const match = filename.match(pattern);
-    if (match) {
-      if (pattern.source.includes('by')) {
-        // Title by Author pattern
-        metadata.title = match[1]?.trim();
-        metadata.author = match[2]?.trim();
-      } else if (match[3]) {
-        // Includes year
-        metadata.author = match[1]?.trim();
-        metadata.title = match[2]?.trim();
-        metadata.publicationDate = match[3];
-      } else {
-        // Basic author - title
-        metadata.author = match[1]?.trim();
-        metadata.title = match[2]?.trim();
-      }
-      break;
-    }
-  }
-
-  const isbnMatch = filename.match(/\b(97[89][\d]{10}|\d{9}[\dXx])\b/);
-  if (isbnMatch) {
-    metadata.isbn = isbnMatch[0];
-  }
-
-  return metadata;
-}
-
-export async function searchBookMetadataOnline(
-  query: string,
-  isbn?: string
-): Promise<Partial<BookMetadata> | null> {
-  try {
-    const googleBooksApiKey = process.env.GOOGLE_BOOKS_API_KEY;
-
-    const buildGoogleBooksQuery = () => {
-      if (isbn) return `isbn:${isbn}`;
-      return query;
-    };
-
-    const runGoogleBooks = async (withKey: boolean): Promise<Partial<BookMetadata> | null> => {
-      try {
-        const q = encodeURIComponent(buildGoogleBooksQuery());
-        const key = withKey && googleBooksApiKey ? `&key=${googleBooksApiKey}` : '';
-        const url = `https://www.googleapis.com/books/v1/volumes?q=${q}&maxResults=1${key}`;
-        const response = await fetch(url);
-        if (!response.ok) return null;
-        const data = await response.json();
-        if (data.items && data.items.length > 0) {
-          const item = data.items[0];
-          const bookInfo = item.volumeInfo;
-          const metadata: Partial<BookMetadata> = {
-            title: bookInfo.title,
-            author: bookInfo.authors?.join(', '),
-            authors: bookInfo.authors,
-            publisher: bookInfo.publisher,
-            publicationDate: bookInfo.publishedDate,
-            description: bookInfo.description,
-            isbn: bookInfo.industryIdentifiers?.find((id: any) => id.type === 'ISBN_13')?.identifier ||
-              bookInfo.industryIdentifiers?.find((id: any) => id.type === 'ISBN_10')?.identifier,
-            pages: bookInfo.pageCount,
-            language: bookInfo.language,
-            genres: bookInfo.categories,
-            coverImage: bookInfo.imageLinks?.thumbnail?.replace('http:', 'https:').replace('&edge=curl', '').replace('zoom=1', 'zoom=2'),
-          };
-          return metadata;
-        }
-      } catch (err) {
-        console.warn('Google Books search failed:', err);
-      }
-      return null;
-    };
-
-    if (googleBooksApiKey) {
-      const gb = await runGoogleBooks(true);
-      if (gb) return gb;
-    }
-
-    const gbNoKey = await runGoogleBooks(false);
-    if (gbNoKey) return gbNoKey;
-
-    if (isbn) {
-      try {
-        const ltResponse = await fetch(
-          `https://www.librarything.com/api/thingISBN/${isbn}.json`
-        );
-        if (ltResponse.ok) {
-          try {
-            const data = await ltResponse.json();
-            const similarIsbns = Object.values(data || {}).flat().filter((x: any) => typeof x === 'string' && x !== isbn) as string[];
-            if (similarIsbns && similarIsbns.length > 0 && !isbn) {
-              // Use similar ISBN as fallback isbn hint
-            }
-          } catch (e) { /* LibraryThing response can be malformed */ }
-        }
-      } catch (ltError) {
-        console.warn('LibraryThing ISBN lookup failed:', ltError);
-      }
-    }
-
-    if (isbn) {
-      try {
-        const olResponse = await fetch(
-          `https://openlibrary.org/isbn/${isbn}.json`
-        );
-
-        if (olResponse.ok) {
-          const olData = await olResponse.json();
-          const metadata: Partial<BookMetadata> = {
-            title: olData.title,
-            author: olData.authors?.map((a: any) => a.name).join(', '),
-            authors: olData.authors?.map((a: any) => a.name),
-            publicationDate: olData.publish_date,
-            publisher: olData.publishers?.join(', '),
-            pages: olData.number_of_pages,
-            isbn,
-          };
-          if (olData.works && olData.works[0]?.key) {
-            try {
-              const workKey = olData.works[0].key;
-              const workResp = await fetch(`https://openlibrary.org${workKey}.json`);
-              if (workResp.ok) {
-                const workData = await workResp.json();
-                metadata.description =
-                  typeof workData.description === 'string' ? workData.description :
-                    workData.description?.value;
-              }
-            } catch (workErr) { /* ignore */ }
-          }
-          return metadata;
-        }
-      } catch (olError) {
-        console.warn('Open Library ISBN lookup failed:', olError);
-      }
-    }
-
-    try {
-      const searchQuery = new URLSearchParams();
-      if (isbn) {
-        searchQuery.set('isbn', isbn);
-      } else {
-        searchQuery.set('title', query);
-      }
-      const olSearchResponse = await fetch(
-        `https://openlibrary.org/search.json?${searchQuery.toString()}&limit=1`
-      );
-
-      if (olSearchResponse.ok) {
-        const olSearchData = await olSearchResponse.json();
-        if (olSearchData.docs && olSearchData.docs.length > 0) {
-          const doc = olSearchData.docs[0];
-          const metadata: Partial<BookMetadata> = {
-            title: doc.title,
-            author: doc.author_name?.join(', '),
-            authors: doc.author_name,
-            publicationDate: doc.first_publish_year ? String(doc.first_publish_year) : undefined,
-            publisher: doc.publisher?.join(', '),
-            pages: doc.number_of_pages_median,
-            isbn: doc.isbn?.find((i: string) => i.length === 13) || doc.isbn?.[0],
-            language: doc.language?.[0],
-            genres: doc.subject,
-            coverImage: doc.cover_i ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg?default=false` : undefined,
-          };
-          return metadata;
-        }
-      }
-    } catch (olSearchError) {
-      console.warn('Open Library search failed:', olSearchError);
-    }
-
-    return null;
-  } catch (error) {
-    console.error('Error searching for book metadata online:', error);
-    return null;
-  }
-}
-
-export async function extractMetadataFromEpub(file: File): Promise<Partial<BookMetadata>> {
-  try {
-    const metadata: Partial<BookMetadata> = {};
-
-    const filenameMetadata = extractMetadataFromFilename(file.name);
-    Object.assign(metadata, filenameMetadata);
-
-    if (metadata.isbn || metadata.title) {
-      const onlineMetadata = await searchBookMetadataOnline(
-        metadata.title || file.name,
-        metadata.isbn
-      );
-
-      if (onlineMetadata) {
-        Object.assign(metadata, onlineMetadata);
-      }
-    }
-
-    return metadata;
-  } catch (error) {
-    console.error('Error extracting metadata from EPUB:', error);
-    return extractMetadataFromFilename(file.name);
-  }
-}
-
-export async function extractMetadataFromPdf(file: File): Promise<Partial<BookMetadata>> {
-  try {
-    const metadata: Partial<BookMetadata> = extractMetadataFromFilename(file.name);
-
-    if (metadata.isbn || metadata.title) {
-      const onlineMetadata = await searchBookMetadataOnline(
-        metadata.title || file.name,
-        metadata.isbn
-      );
-
-      if (onlineMetadata) {
-        Object.assign(metadata, onlineMetadata);
-      }
-    }
-
-    return metadata;
-  } catch (error) {
-    console.error('Error extracting metadata from PDF:', error);
-    return extractMetadataFromFilename(file.name);
-  }
-}
-
-export async function extractBookMetadata(file: File | null, filename: string): Promise<Partial<BookMetadata>> {
-  let metadata: Partial<BookMetadata> = {};
-
-  // First, extract from filename
-  const filenameMetadata = extractMetadataFromFilename(filename);
-  Object.assign(metadata, filenameMetadata);
-
-  if (file) {
-    try {
-      if (file.type === 'application/epub+zip' || file.name.endsWith('.epub')) {
-        const epubMetadata = await extractMetadataFromEpub(file);
-        Object.assign(metadata, epubMetadata);
-      } else if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
-        const pdfMetadata = await extractMetadataFromPdf(file);
-        Object.assign(metadata, pdfMetadata);
-      }
-    } catch (error) {
-      console.error('Error extracting metadata from file:', error);
-    }
-  }
-
-  try {
-    const onlineMetadata = await searchBookMetadataOnline(
-      metadata.title || filename,
-      metadata.isbn
-    );
-
-    if (onlineMetadata) {
-      Object.assign(metadata, onlineMetadata);
-    }
-  } catch (error) {
-    console.error('Error with online metadata search:', error);
-  }
-
-  return metadata;
-}
-</file>
-
-<file path="package.json">
-{
-  "name": "library",
-  "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
-  },
-  "dependencies": {
-    "@aws-sdk/client-s3": "^3.948.0",
-    "@aws-sdk/s3-request-presigner": "^3.948.0",
-    "@hookform/resolvers": "^5.2.2",
-    "@phosphor-icons/react": "^2.1.10",
-    "css-select": "^6.0.0",
-    "dom-parser": "^1.1.5",
-    "epubjs": "^0.3.93",
-    "googleapis": "^173.0.0",
-    "jimp": "^1.6.0",
-    "jszip": "^3.10.1",
-    "next": "16.0.10",
-    "next-auth": "^5.0.0-beta.32",
-    "pdf-lib": "^1.17.1",
-    "pdf-parse": "^2.4.5",
-    "pdf2pic": "^3.2.0",
-    "pdfjs-dist": "^6.2.108",
-    "postcss": "^8.5.6",
-    "react": "19.2.1",
-    "react-dom": "19.2.1",
-    "react-hook-form": "^7.68.0",
-    "zod": "^4.1.13"
-  },
-  "devDependencies": {
-    "@tailwindcss/postcss": "^4.1.18",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "16.0.10",
-    "tailwindcss": "^4.1.18",
-    "typescript": "^5"
-  }
-}
-</file>
-
 <file path="src/components/BookDetailDrawer.tsx">
 'use client';
 
@@ -4607,11 +4893,11 @@ interface BookDetailDrawerProps {
     notes?: BookNote[];
     userBookState?: UserBookState;
     onUpdateUserBookState?: (bookId: string, isRead?: boolean, isInReadingList?: boolean) => Promise<void>;
-    onCreateNote?: (bookId: string, text?: string, image?: File) => Promise<void>;
+    onCreateNote?: (bookId: string, text?: string) => Promise<void>;
     onDeleteNote?: (noteId: string) => Promise<void>;
     allCollections: LibraryCollection[];
     allGenres?: string[];
-    onCollectionsChanged?: () => void;
+    onCollectionCreated?: (collection: LibraryCollection) => void;
 }
 
 export default function BookDetailDrawer({
@@ -4628,13 +4914,12 @@ export default function BookDetailDrawer({
     onDeleteNote,
     allCollections,
     allGenres,
-    onCollectionsChanged
+    onCollectionCreated
 }: BookDetailDrawerProps) {
     const { data: session } = useSession();
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isEditingMetadata, setIsEditingMetadata] = useState(false);
     const [newNoteText, setNewNoteText] = useState('');
-    const [newNoteImage, setNewNoteImage] = useState<File | null>(null);
     const [isAddingNote, setIsAddingNote] = useState(false);
 
     // Store actual File object for upload to images/ directory
@@ -4730,10 +5015,11 @@ export default function BookDetailDrawer({
         if (!name || !book) return;
         setIsCreatingCollection(true);
         try {
-            await bookApi.createCollection(name, newCollectionDescription.trim() || undefined);
-            onCollectionsChanged?.();
+            const created = await bookApi.createCollection(name, newCollectionDescription.trim() || undefined);
+            onCollectionCreated?.(created);
             setNewCollectionName('');
             setNewCollectionDescription('');
+            // Add book to the new collection
             await toggleCollection(name, true);
         } catch (err) {
             console.error('Failed to create collection:', err);
@@ -4769,9 +5055,8 @@ export default function BookDetailDrawer({
         if (!onCreateNote) return;
         setIsSubmitting(true);
         try {
-            await onCreateNote(book.id, newNoteText || undefined, newNoteImage || undefined);
+            await onCreateNote(book.id, newNoteText || undefined);
             setNewNoteText('');
-            setNewNoteImage(null);
             setIsAddingNote(false);
         } catch (error) {
             console.error('Failed to add note:', error);
@@ -4780,7 +5065,14 @@ export default function BookDetailDrawer({
         }
     };
 
-    const effectiveCover = pendingCoverPreview || book.coverImage;
+    const getCoverUrl = (book: BookMetadata): string | undefined => {
+        if (book.coverFileId) {
+            return `/api/utils/cover-image?fileId=${book.coverFileId}`;
+        }
+        return book.coverImage; // fallback for legacy books
+    };
+
+    const effectiveCover = pendingCoverPreview || getCoverUrl(book);
 
     return (
         <>
@@ -4811,7 +5103,7 @@ export default function BookDetailDrawer({
                                 <div className='flex flex-col h-full justify-between'>
                                     <div>
                                         <div className="text-lg font-bold text-gray-900 leading-tight">{book.title}</div>
-                                        <p className="text-xs text-gray-600 mt-1">{book.author}</p>
+                                        <p className="text-sm text-gray-600 mt-1">{book.author}</p>
                                         <div className='mt-2 flex flex-row gap-2 flex-shrink-0'>
                                             {session && (
                                                 <PencilIcon
@@ -4828,7 +5120,7 @@ export default function BookDetailDrawer({
                                         </div>
                                     </div>
                                     {session && onUpdateUserBookState && (
-                                        <div className="mt-2 flex flex-wrap gap-2">
+                                        <div className="mt-3 flex flex-wrap gap-2">
                                             <button
                                                 onClick={() => onUpdateUserBookState(book.id, !userBookState?.isRead, userBookState?.isInReadingList)}
                                                 className={`cursor-pointer px-3 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1.5 ${userBookState?.isRead ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
@@ -4856,7 +5148,7 @@ export default function BookDetailDrawer({
                         {isEditingMetadata && session && (
                             <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 space-y-2">
                                 <p className="text-xs text-gray-500">
-                                    Upload a custom image to save in your <code className="bg-gray-200 px-1 rounded">images/</code> folder.
+                                    Upload a cover image
                                 </p>
                                 <div className="flex flex-wrap items-center gap-2">
                                     <button
@@ -4881,7 +5173,7 @@ export default function BookDetailDrawer({
                                     >
                                         <CameraIcon size={14} /> Take Photo
                                     </button>
-                                    {(pendingCoverPreview || book.coverImage) && (
+                                    {(pendingCoverPreview || book.coverImage || book.coverFileId) && (
                                         <button
                                             type="button"
                                             onClick={() => {
@@ -4937,8 +5229,9 @@ export default function BookDetailDrawer({
                             allGenres={allGenres || []}
                         />
 
-                        <div className="border-t border-gray-200 pt-4">
-                            <div className="flex justify-between items-center mb-3">
+                        <div className="border-t border-gray-200"></div>
+                        <div className="flex flex-col justify-between gap-3">
+                            <div className='flex justify-between items-center'>
                                 <h3 className="text-base font-semibold text-gray-900">Notes</h3>
                                 {session && onCreateNote && (
                                     <button
@@ -4950,6 +5243,7 @@ export default function BookDetailDrawer({
                                 )}
                             </div>
 
+
                             {isAddingNote && session && onCreateNote && (
                                 <div className="bg-gray-50 p-3 rounded-lg mb-3 border border-gray-200">
                                     <textarea
@@ -4958,12 +5252,6 @@ export default function BookDetailDrawer({
                                         onChange={(e) => setNewNoteText(e.target.value)}
                                         className="w-full p-2 border border-gray-300 rounded text-sm mb-2 text-gray-900"
                                         rows={3}
-                                    />
-                                    <input
-                                        type="file"
-                                        accept="image/*"
-                                        onChange={(e) => setNewNoteImage(e.target.files?.[0] || null)}
-                                        className="mb-3 text-xs text-gray-600"
                                     />
                                     <button
                                         onClick={handleAddNote}
@@ -4979,15 +5267,10 @@ export default function BookDetailDrawer({
                                 {notes?.map((note) => (
                                     <div key={note.id} className="bg-gray-50 p-3 rounded-lg border border-gray-100 text-sm">
                                         <p className="text-gray-800">{note.text}</p>
-                                        {note.imageUrl && (
-                                            <div className="mt-2">
-                                                <img src={note.imageUrl} alt="Note attachment" className="max-h-32 rounded border border-gray-200" />
-                                            </div>
-                                        )}
                                         {note.userId === session?.user?.id && onDeleteNote && (
                                             <button
                                                 onClick={() => onDeleteNote(note.id)}
-                                                className="cursor-pointer text-red-500 text-xs mt-2 hover:text-red-700 font-medium"
+                                                className="cursor-pointer text-red-500 text-xs mt-2 hover:text-red-700 font-medium flex w-full justify-end"
                                             >
                                                 Delete
                                             </button>
@@ -5256,7 +5539,7 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
     return (
       <div className="space-y-4 text-sm">
         {book.description && (
-          <p className="text-gray-900 leading-relaxed">
+          <div className="text-gray-900 leading-relaxed">
             {book.description.length > 200 && !isDescriptionExpanded
               ? `${book.description.substring(0, 200)}...`
               : book.description}
@@ -5269,16 +5552,16 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
                 {isDescriptionExpanded ? 'read less' : 'read more'}
               </button>
             )}
-          </p>
+          </div>
         )}
         {book.genres && book.genres.length > 0 && (
           <div>
             <span className="font-medium text-gray-500">Genres</span>
-            <div className="flex flex-wrap gap-1.5 mt-1.5">
+            <div className="flex flex-wrap gap-1.5 mt-1">
               {book.genres.map((genre, index) => (
                 <span
                   key={index}
-                  className="bg-blue-100 text-blue-800 text-xs px-2.5 py-0.5 rounded-full"
+                  className="bg-blue-100 text-blue-800 text-sm px-2.5 py-0.5 rounded-full"
                 >
                   {genre.trim()}
                 </span>
@@ -5286,7 +5569,22 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
             </div>
           </div>
         )}
-        <div className="grid grid-cols-2 gap-4">
+        {book.collections && book.collections.length > 0 && (
+          <div>
+            <span className="font-medium text-gray-500">Collections</span>
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {book.collections.map((collection, index) => (
+                <span
+                  key={index}
+                  className="bg-green-100 text-green-800 text-sm px-2.5 py-0.5 rounded-full"
+                >
+                  {collection}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(0,1fr))] gap-4">
           {book.publisher && (
             <div>
               <span className="font-medium text-gray-500">Publisher</span>
@@ -5300,7 +5598,7 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
             </div>
           )}
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(0,1fr))] gap-4">
           {book.language && (
             <div>
               <span className="font-medium text-gray-500">Language</span>
@@ -5315,27 +5613,11 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
               <p className="text-gray-900">{book.pages}</p>
             </div>
           )}
-          {book.isbn && (
-            <div>
-              <span className="font-medium text-gray-500">ISBN</span>
-              <p className="text-gray-900">{book.isbn}</p>
-            </div>
-          )}
         </div>
-        
-        {book.collections && book.collections.length > 0 && (
+        {book.isbn && (
           <div>
-            <span className="font-medium text-gray-500">Collections</span>
-            <div className="flex flex-wrap gap-1.5 mt-1.5">
-              {book.collections.map((collection, index) => (
-                <span
-                  key={index}
-                  className="bg-green-100 text-green-800 text-xs px-2.5 py-0.5 rounded-full"
-                >
-                  {collection}
-                </span>
-              ))}
-            </div>
+            <span className="font-medium text-gray-500">Ref</span>
+            <p className="text-gray-900">{book.isbn}</p>
           </div>
         )}
       </div>
@@ -5343,7 +5625,7 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
   }
 
   return (
-    <form onSubmit={handleSubmit(handleFormSubmit)} noValidate className="space-y-4 my-2">
+    <form onSubmit={handleSubmit(handleFormSubmit)} noValidate className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Title</label>
@@ -5449,7 +5731,7 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
         />
       </div>
 
-      <div className="flex justify-end items-center gap-2 pt-2">
+      <div className="flex justify-end items-center gap-2">
         <button
           type="button"
           onClick={onCancel}
@@ -5478,12 +5760,15 @@ import { bookApi } from '@/lib/api/books';
 import { UploadBookRequest } from '@/app/types/book';
 import { extractBookMetadata } from '@/lib/metadataExtractor';
 import { CameraIcon, ImageSquare, XIcon } from '@phosphor-icons/react';
+import MultiSelect from './MultiSelect';
 
 interface UploadBookProps {
-    onUploadComplete?: () => void;
+    onUploadComplete?: (newBook: any) => void;
+    collectionsOptions?: string[];
+    genresOptions?: string[];
 }
 
-export function UploadBook({ onUploadComplete }: UploadBookProps) {
+export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOptions = [] }: UploadBookProps) {
     const [uploading, setUploading] = useState(false);
     const [extracting, setExtracting] = useState(false);
     const [file, setFile] = useState<File | null>(null);
@@ -5504,6 +5789,8 @@ export function UploadBook({ onUploadComplete }: UploadBookProps) {
         author: '',
         fileType: 'epub',
         collections: [],
+        genres: [],
+        publicationDate: '',
     });
 
     useEffect(() => {
@@ -5602,8 +5889,7 @@ export function UploadBook({ onUploadComplete }: UploadBookProps) {
         setUploading(true);
 
         try {
-            // customCover File is sent directly so the backend saves it in drive folder images/
-            await bookApi.uploadBook(
+            const newBook = await bookApi.uploadBook(
                 { metadata },
                 metadata.fileType === 'physical' ? undefined : file!,
                 customCover || undefined
@@ -5620,8 +5906,10 @@ export function UploadBook({ onUploadComplete }: UploadBookProps) {
                 author: '',
                 fileType: 'epub',
                 collections: [],
+                genres: [],
+                publicationDate: '',
             });
-            onUploadComplete?.();
+            onUploadComplete?.(newBook);
         } catch (error) {
             console.error('Upload failed:', error);
             alert(`Upload failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -5799,10 +6087,13 @@ export function UploadBook({ onUploadComplete }: UploadBookProps) {
 
             <div className='flex flex-row gap-4'>
                 <div className='flex flex-col gap-1 w-full'>
-                    <label className="text-sm font-medium text-gray-700">Publication Date</label>
+                    <label className="text-sm font-medium text-gray-700">Publication Year</label>
                     <input
                         className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
-                        type="date"
+                        type="number"
+                        min="1000"
+                        max={new Date().getFullYear()}
+                        placeholder="e.g. 2024"
                         value={metadata.publicationDate || ''}
                         onChange={(e) => setMetadata({ ...metadata, publicationDate: e.target.value })}
                     />
@@ -5827,33 +6118,33 @@ export function UploadBook({ onUploadComplete }: UploadBookProps) {
                     <input
                         className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
                         type="number"
+                        min="1"
                         value={metadata.pages || ''}
                         onChange={(e) => setMetadata({ ...metadata, pages: Number(e.target.value) })}
                     />
                 </div>
             </div>
 
-            <div className='flex flex-row gap-4'>
-                <div className='flex flex-col gap-1 w-full'>
-                    <label className="text-sm font-medium text-gray-700">Genres</label>
-                    <input
-                        className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
-                        type="text"
-                        value={metadata.genres?.join(', ') || ''}
-                        onChange={(e) => setMetadata({ ...metadata, genres: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
-                        placeholder="comma separated"
-                    />
-                </div>
-                <div className='flex flex-col gap-1 w-full'>
-                    <label className="text-sm font-medium text-gray-700">Collections</label>
-                    <input
-                        className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
-                        type="text"
-                        value={metadata.collections?.join(', ') || ''}
-                        onChange={(e) => setMetadata({ ...metadata, collections: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
-                        placeholder="comma separated"
-                    />
-                </div>
+            <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Genres</label>
+                <MultiSelect
+                    options={genresOptions}
+                    selected={metadata.genres || []}
+                    onChange={(v) => setMetadata(prev => ({ ...prev, genres: v }))}
+                    placeholder="Search or add a genre…"
+                    creatable
+                />
+            </div>
+
+            <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Collections</label>
+                <MultiSelect
+                    options={collectionsOptions}
+                    selected={metadata.collections || []}
+                    onChange={(v) => setMetadata(prev => ({ ...prev, collections: v }))}
+                    placeholder="Search or add a collection…"
+                    creatable
+                />
             </div>
 
             <div className='flex flex-row w-full gap-4 pt-2'>

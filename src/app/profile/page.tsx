@@ -2,16 +2,18 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useSession, signOut } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 import { bookApi } from '@/lib/api/books';
-import { AcquiredBookNote, BookMetadata, LibraryCollection, LibraryData, UserBookState } from '@/app/types/book';
+import { AcquiredBookNote, BookMetadata, LibraryCollection, LibraryData } from '@/app/types/book';
 import BookGrid from '@/components/BookGrid';
 import BookDetailDrawer from '@/components/BookDetailDrawer';
-import { ArrowLeft, PencilSimple, Plus, TrashSimple, X } from '@phosphor-icons/react';
+import { ArrowLeft, CaretDown, CaretUp, PencilSimple, Plus, TrashSimple, X } from '@phosphor-icons/react';
 
-type TabKey = 'collections' | 'toAcquire' | 'readBooks';
+type TabKey = 'collections' | 'toAcquire';
 
 export default function Profile() {
   const { data: session } = useSession();
+  const router = useRouter();
   const [libraryData, setLibraryData] = useState<LibraryData>({ books: [], notes: [], userBookStates: [], collections: [], booksToAcquire: [] });
   const [loading, setLoading] = useState(true);
   const [selectedBook, setSelectedBook] = useState<BookMetadata | null>(null);
@@ -50,15 +52,6 @@ export default function Profile() {
     setLibraryData(prev => ({
       ...prev,
       books: prev.books.map(b => b.id === updatedBook.id ? updatedBook : b),
-    }));
-  };
-
-  const updateUserBookStateInState = (updatedState: UserBookState) => {
-    setLibraryData(prev => ({
-      ...prev,
-      userBookStates: prev.userBookStates.map(s =>
-        s.userId === updatedState.userId && s.bookId === updatedState.bookId ? updatedState : s
-      ),
     }));
   };
 
@@ -104,16 +97,6 @@ export default function Profile() {
     }));
   };
   // --- end helpers ---
-
-  const readBooks = useMemo(() => {
-    if (!session?.user?.id) return [];
-    const userReadStates = libraryData.userBookStates.filter(
-      state => state.userId === session.user.id && state.isRead
-    );
-    return userReadStates.map(state =>
-      libraryData.books.find(book => book.id === state.bookId)
-    ).filter(Boolean) as BookMetadata[];
-  }, [libraryData, session]);
 
   const myCollections = useMemo(() => {
     if (!session?.user?.id) return libraryData.collections;
@@ -288,6 +271,10 @@ export default function Profile() {
     }
   };
 
+  const handleCollectionCreated = (newCollection: LibraryCollection) => {
+    addCollectionInState(newCollection);
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -331,8 +318,8 @@ export default function Profile() {
           <div className="flex items-center gap-4">
             <h1 className="text-xl font-bold text-gray-900">
               <button
-                onClick={() => window.location.href = '/'}
-                className="hover:text-blue-600 transition-colors"
+                onClick={() => router.push('/')}
+                className="cursor-pointer hover:text-blue-600 transition-colors"
               >
                 biblioteca malavada
               </button>
@@ -353,7 +340,7 @@ export default function Profile() {
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={() => window.location.href = '/'}
+              onClick={() => router.push('/')}
               className="flex gap-1 items-center cursor-pointer bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 transition-colors text-xs"
             >
               <ArrowLeft size={12} />
@@ -373,7 +360,6 @@ export default function Profile() {
         <div className="pb-3 flex items-center gap-2 border-b border-gray-200 overflow-x-auto">
           <TabButton tab="collections" label="All Collections" count={myCollections.length} />
           <TabButton tab="toAcquire" label="Wishlist" count={booksToAcquire.length} />
-          <TabButton tab="readBooks" label="Read Books" count={readBooks.length} />
         </div>
 
         {activeTab === 'collections' && (
@@ -409,69 +395,55 @@ export default function Profile() {
                       className={`bg-white rounded-xl border transition-all ${isExpanded ? 'border-blue-300 ring-2 ring-blue-100 md:col-span-2 lg:col-span-3' : 'border-gray-200 hover:shadow-sm hover:border-gray-300'
                         }`}
                     >
-                      <div className="p-5">
-                        <div className="flex items-start justify-between gap-3 mb-2">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <h3 className="text-lg font-semibold text-gray-900 truncate">
-                                {collection.name}
-                              </h3>
-                              <span className={`inline-flex items-center px-2 py-0.5 text-xs rounded-full border ${isMine ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-600 border-gray-200'}`}>
-                                {isMine ? 'Yours' : 'Shared'}
-                              </span>
+                      <div className="flex items-center justify-between gap-3 p-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <div onClick={() => setExpandedCollectionId(isExpanded ? null : collection.id)} className="cursor-pointer flex gap-2 items-center text-lg font-semibold text-gray-900 truncate">
+                              {!isExpanded ? <CaretDown size={16} /> : <CaretUp size={16} />}
+                              {collection.name}
                             </div>
-                            {collection.description && (
-                              <p className="text-sm text-gray-600 mt-1 line-clamp-2">{collection.description}</p>
-                            )}
                           </div>
-                          <div className="flex-shrink-0 flex items-center gap-1">
-                            {isMine && (
-                              <>
-                                <button
-                                  onClick={() => openEditCollection(collection)}
-                                  className="cursor-pointer p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
-                                  title="Edit collection"
-                                >
-                                  <PencilSimple size={16} />
-                                </button>
-                                <button
-                                  onClick={() => deleteCollection(collection)}
-                                  className="cursor-pointer p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
-                                  title="Delete collection"
-                                >
-                                  <TrashSimple size={16} />
-                                </button>
-                              </>
-                            )}
-                          </div>
+                          {collection.description && (
+                            <p className="text-sm text-gray-600 mt-1 line-clamp-2">{collection.description}</p>
+                          )}
                         </div>
-                        <div className="mt-3 flex items-center justify-between">
-                          <div className="text-sm text-gray-500">
+                        <div className="flex items-center gap-1">
+                          <div className="text-xs text-gray-500 p-1">
                             {books.length} book{books.length !== 1 ? 's' : ''}
                           </div>
                           <button
-                            onClick={() => setExpandedCollectionId(isExpanded ? null : collection.id)}
-                            className="cursor-pointer text-sm text-blue-600 hover:text-blue-800 font-medium"
+                            onClick={() => openEditCollection(collection)}
+                            className="cursor-pointer p-1 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
+                            title="Edit collection"
                           >
-                            {isExpanded ? 'Hide books' : 'View books →'}
+                            <PencilSimple size={16} />
+                          </button>
+                          <button
+                            onClick={() => deleteCollection(collection)}
+                            className="cursor-pointer p-1 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                            title="Delete collection"
+                          >
+                            <TrashSimple size={16} />
                           </button>
                         </div>
                       </div>
-                      {isExpanded && (
-                        <div className="border-t border-gray-100 bg-gray-50/50 p-5 rounded-b-xl">
-                          {books.length === 0 ? (
-                            <div className="text-center py-8 text-sm text-gray-500">
-                              <div className="text-3xl mb-2">📖</div>
-                              No books in this collection yet.
-                              <div className="mt-2 text-xs text-gray-400">
-                                Go to the library, open a book, and add it to "{collection.name}" from the details drawer.
+                      {
+                        isExpanded && (
+                          <div className="border-t border-gray-100 bg-gray-50/50 p-5 rounded-b-xl">
+                            {books.length === 0 ? (
+                              <div className="text-center py-8 text-sm text-gray-500">
+                                <div className="text-3xl mb-2">📖</div>
+                                No books in this collection yet.
+                                <div className="mt-2 text-xs text-gray-400">
+                                  Go to the library, open a book, and add it to "{collection.name}" from the details drawer.
+                                </div>
                               </div>
-                            </div>
-                          ) : (
-                            <BookGrid books={books} onBookClick={handleBookClick} />
-                          )}
-                        </div>
-                      )}
+                            ) : (
+                              <BookGrid books={books} onBookClick={handleBookClick} />
+                            )}
+                          </div>
+                        )
+                      }
                     </div>
                   );
                 })}
@@ -554,186 +526,177 @@ export default function Profile() {
             )}
           </>
         )}
-
-        {activeTab === 'readBooks' && (
-          <>
-            <div className="text-xl font-bold text-gray-900">Read Books</div>
-            {readBooks.length !== 0 ?
-              <BookGrid books={readBooks} onBookClick={handleBookClick} />
-              :
-              <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">No books read</h3>
-              </div>
-            }
-          </>
-        )}
       </main>
 
-      {showCreateCollection && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => !isSubmittingCollection && setShowCreateCollection(false)}>
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="p-4 py-3 border-b border-gray-100 flex items-center justify-between">
-              <h2 className="text-md font-semibold text-gray-900">
-                {editingCollection ? 'Edit Collection' : 'Create New Collection'}
-              </h2>
-              <button
-                onClick={() => setShowCreateCollection(false)}
-                disabled={isSubmittingCollection}
-                className="cursor-pointer p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors disabled:opacity-50"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <form onSubmit={submitCollection} className="p-4 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Collection Name <span className="text-red-500">*</span>
-                </label>
-                <input
-                  autoFocus
-                  value={collectionForm.name}
-                  onChange={e => setCollectionForm(f => ({ ...f, name: e.target.value }))}
-                  placeholder="e.g. Latin American Feminist Theory"
-                  className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                  maxLength={80}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Description <span className="text-gray-400 font-normal">(optional)</span>
-                </label>
-                <textarea
-                  value={collectionForm.description}
-                  onChange={e => setCollectionForm(f => ({ ...f, description: e.target.value }))}
-                  placeholder="What's this collection about? Who should read it?"
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                  maxLength={500}
-                />
-              </div>
-              <div className="flex items-center justify-end gap-3">
+      {
+        showCreateCollection && (
+          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => !isSubmittingCollection && setShowCreateCollection(false)}>
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+              <div className="p-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                <h2 className="text-md font-semibold text-gray-900">
+                  {editingCollection ? 'Edit Collection' : 'Create New Collection'}
+                </h2>
                 <button
-                  type="button"
                   onClick={() => setShowCreateCollection(false)}
                   disabled={isSubmittingCollection}
-                  className="cursor-pointer px-4 py-2 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors disabled:opacity-50"
+                  className="cursor-pointer p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors disabled:opacity-50"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmittingCollection || !collectionForm.name.trim()}
-                  className="cursor-pointer px-5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors disabled:opacity-50 shadow-sm"
-                >
-                  {isSubmittingCollection ? 'Saving…' : editingCollection ? 'Save Changes' : 'Create Collection'}
+                  <X size={20} />
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {showAddAcquire && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => !isSubmittingAcquire && setShowAddAcquire(false)}>
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="p-4 py-3 border-b border-gray-100 flex items-center justify-between">
-              <h2 className="text-md font-semibold text-gray-900">
-                {editingAcquire ? 'Edit Book to Acquire' : 'Add Book to Acquire'}
-              </h2>
-              <button
-                onClick={() => setShowAddAcquire(false)}
-                disabled={isSubmittingAcquire}
-                className="cursor-pointer p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors disabled:opacity-50"
-              >
-                <X size={20} />
-              </button>
+              <form onSubmit={submitCollection} className="p-4 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Collection Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    autoFocus
+                    value={collectionForm.name}
+                    onChange={e => setCollectionForm(f => ({ ...f, name: e.target.value }))}
+                    placeholder="e.g. Latin American Feminist Theory"
+                    className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                    maxLength={80}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Description <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <textarea
+                    value={collectionForm.description}
+                    onChange={e => setCollectionForm(f => ({ ...f, description: e.target.value }))}
+                    placeholder="What's this collection about? Who should read it?"
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    maxLength={500}
+                  />
+                </div>
+                <div className="flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateCollection(false)}
+                    disabled={isSubmittingCollection}
+                    className="cursor-pointer px-4 py-2 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingCollection || !collectionForm.name.trim()}
+                    className="cursor-pointer px-5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors disabled:opacity-50 shadow-sm"
+                  >
+                    {isSubmittingCollection ? 'Saving…' : editingCollection ? 'Save Changes' : 'Create Collection'}
+                  </button>
+                </div>
+              </form>
             </div>
-            <form onSubmit={submitAcquire} className="p-4 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Title <span className="text-red-500">*</span>
-                </label>
-                <input
-                  autoFocus
-                  value={acquireForm.title}
-                  onChange={e => setAcquireForm(f => ({ ...f, title: e.target.value }))}
-                  placeholder="Book title"
-                  className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                />
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Author</label>
-                  <input
-                    value={acquireForm.author}
-                    onChange={e => setAcquireForm(f => ({ ...f, author: e.target.value }))}
-                    placeholder="e.g. bell hooks"
-                    className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">ISBN</label>
-                  <input
-                    value={acquireForm.isbn}
-                    onChange={e => setAcquireForm(f => ({ ...f, isbn: e.target.value }))}
-                    placeholder="Optional ID"
-                    className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['low', 'medium', 'high'] as const).map(p => (
-                    <button
-                      key={p}
-                      type="button"
-                      onClick={() => setAcquireForm(f => ({ ...f, priority: p }))}
-                      className={`cursor-pointer py-2 rounded-md border text-sm font-medium capitalize transition-all ${acquireForm.priority === p
-                        ? priorityStyles[p] + ' ring-2 ring-offset-1'
-                        : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-                        }`}
-                    >
-                      {p === 'high'}{p === 'medium'}{p === 'low'}{p}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Notes <span className="text-gray-400 font-normal">(optional)</span>
-                </label>
-                <textarea
-                  value={acquireForm.notes}
-                  onChange={e => setAcquireForm(f => ({ ...f, notes: e.target.value }))}
-                  placeholder="Where did you hear about it? Which edition? Price? Bookseller name?"
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                />
-              </div>
-              <div className="flex items-center justify-end gap-3">
+          </div>
+        )
+      }
+
+      {
+        showAddAcquire && (
+          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => !isSubmittingAcquire && setShowAddAcquire(false)}>
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+              <div className="p-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                <h2 className="text-md font-semibold text-gray-900">
+                  {editingAcquire ? 'Edit Book to Acquire' : 'Add Book to Acquire'}
+                </h2>
                 <button
-                  type="button"
                   onClick={() => setShowAddAcquire(false)}
                   disabled={isSubmittingAcquire}
-                  className="cursor-pointer px-4 py-2 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors disabled:opacity-50"
+                  className="cursor-pointer p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors disabled:opacity-50"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmittingAcquire || !acquireForm.title.trim()}
-                  className="cursor-pointer px-5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors disabled:opacity-50 shadow-sm"
-                >
-                  {isSubmittingAcquire ? 'Saving…' : editingAcquire ? 'Save Changes' : 'Add to List'}
+                  <X size={20} />
                 </button>
               </div>
-            </form>
+              <form onSubmit={submitAcquire} className="p-4 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Title <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    autoFocus
+                    value={acquireForm.title}
+                    onChange={e => setAcquireForm(f => ({ ...f, title: e.target.value }))}
+                    placeholder="Book title"
+                    className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Author</label>
+                    <input
+                      value={acquireForm.author}
+                      onChange={e => setAcquireForm(f => ({ ...f, author: e.target.value }))}
+                      placeholder="e.g. bell hooks"
+                      className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">ISBN</label>
+                    <input
+                      value={acquireForm.isbn}
+                      onChange={e => setAcquireForm(f => ({ ...f, isbn: e.target.value }))}
+                      placeholder="Optional ID"
+                      className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['low', 'medium', 'high'] as const).map(p => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setAcquireForm(f => ({ ...f, priority: p }))}
+                        className={`cursor-pointer py-2 rounded-md border text-sm font-medium capitalize transition-all ${acquireForm.priority === p
+                          ? priorityStyles[p] + ' ring-2 ring-offset-1'
+                          : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                          }`}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Notes <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <textarea
+                    value={acquireForm.notes}
+                    onChange={e => setAcquireForm(f => ({ ...f, notes: e.target.value }))}
+                    placeholder="Where did you hear about it? Which edition? Price? Bookseller name?"
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  />
+                </div>
+                <div className="flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddAcquire(false)}
+                    disabled={isSubmittingAcquire}
+                    className="cursor-pointer px-4 py-2 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingAcquire || !acquireForm.title.trim()}
+                    className="cursor-pointer px-5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors disabled:opacity-50 shadow-sm"
+                  >
+                    {isSubmittingAcquire ? 'Saving…' : editingAcquire ? 'Save Changes' : 'Add to List'}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       <BookDetailDrawer
         book={selectedBook}
@@ -742,14 +705,10 @@ export default function Profile() {
         onReadBook={handleReadBook}
         onBookUpdated={updateBookInState}
         notes={libraryData.notes.filter(note => note.bookId === (selectedBook?.id || ''))}
-        userBookState={session ? libraryData.userBookStates.find(state => state.bookId === (selectedBook?.id || '') && state.userId === session.user?.id) : undefined}
-        onUpdateUserBookState={session ? async (bookId, isRead, isInReadingList) => {
-          const updated = await bookApi.updateUserBookState(bookId, isRead, isInReadingList);
-          updateUserBookStateInState(updated);
-        } : undefined}
         allCollections={libraryData.collections}
         allGenres={uniqueGenres}
+        onCollectionCreated={handleCollectionCreated}
       />
-    </div>
+    </div >
   );
 }

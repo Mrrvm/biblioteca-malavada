@@ -62,7 +62,6 @@ export interface BookMetadata {
   filePath?: string;
   fileType: 'epub' | 'pdf' | 'acsm' | 'physical';
   collections: string[];
-  location?: string;
   notes?: string;
   createdAt: string;
   updatedAt: string;

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { BookMetadata, LibraryData, BookNote, UserBookState, LibraryCollection } from '@/app/types/book';
+import { BookMetadata, LibraryData, BookNote, LibraryCollection } from '@/app/types/book';
 import { bookApi } from '@/lib/api/books';
 import BookGrid from './BookGrid';
 import SearchBar from './SearchBar';
@@ -9,9 +9,11 @@ import BookDetailDrawer from './BookDetailDrawer';
 import { UploadBook } from './UploadBook';
 import MultiSelect from './MultiSelect';
 import { useSession, signIn, signOut } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 
 function Library() {
   const { data: session, status } = useSession();
+  const router = useRouter();
   const [libraryData, setLibraryData] = useState<LibraryData>({ books: [], notes: [], userBookStates: [], collections: [], booksToAcquire: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -53,15 +55,6 @@ function Library() {
     setLibraryData(prev => ({
       ...prev,
       books: prev.books.map(b => b.id === updatedBook.id ? updatedBook : b),
-    }));
-  };
-
-  const updateUserBookStateInState = (updatedState: UserBookState) => {
-    setLibraryData(prev => ({
-      ...prev,
-      userBookStates: prev.userBookStates.map(s =>
-        s.userId === updatedState.userId && s.bookId === updatedState.bookId ? updatedState : s
-      ),
     }));
   };
 
@@ -167,16 +160,6 @@ function Library() {
     }
   };
 
-  const handleUpdateUserBookState = async (bookId: string, isRead?: boolean, isInReadingList?: boolean) => {
-    if (!session) return;
-    try {
-      const updated = await bookApi.updateUserBookState(bookId, isRead, isInReadingList);
-      updateUserBookStateInState(updated);
-    } catch (err) {
-      console.error('Failed to update user book state:', err);
-    }
-  };
-
   const handleCreateNote = async (bookId: string, text?: string) => {
     if (!session) return;
     try {
@@ -238,7 +221,7 @@ function Library() {
                     src={session.user.image}
                     alt={session.user.name || 'User'}
                     className="text-xs w-8 h-8 rounded-full cursor-pointer"
-                    onClick={() => window.location.href = '/profile'}
+                    onClick={() => router.push('/profile')}
                   />
                 )}
                 <button
@@ -301,7 +284,7 @@ function Library() {
         ) : (
           <BookGrid books={filteredBooks} onBookClick={handleBookClick} />
         )}
-      </main >
+      </main>
 
       <BookDetailDrawer
         book={selectedBook}
@@ -311,8 +294,6 @@ function Library() {
         onDeleteBook={session ? handleDeleteBook : undefined}
         onBookUpdated={updateBookInState}
         notes={libraryData.notes.filter(note => note.bookId === (selectedBook?.id || ''))}
-        userBookState={session ? libraryData.userBookStates.find(state => state.bookId === (selectedBook?.id || '') && state.userId === session.user?.id) : undefined}
-        onUpdateUserBookState={session ? handleUpdateUserBookState : undefined}
         onCreateNote={session ? handleCreateNote : undefined}
         onDeleteNote={session ? handleDeleteNote : undefined}
         allCollections={libraryData.collections}

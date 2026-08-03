@@ -19,7 +19,6 @@ export const bookSchema = z.object({
   publisher: z.string().optional(),
   language: z.string().optional(),
   pages: z.number().optional(),
-  location: z.string().optional(),
   notes: z.string().optional(),
   collections: z.array(z.string()).optional(),
 });
@@ -36,7 +35,6 @@ const formSchema = z.object({
   publisher: z.string().optional(),
   language: z.string().optional(),
   pages: z.number().optional(),
-  location: z.string().optional(),
   notes: z.string().optional(),
   collections: z.union([z.string(), z.array(z.string())]).optional(),
 });
@@ -87,7 +85,6 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
       publisher: book.publisher || '',
       language: book.language || '',
       pages: book.pages,
-      location: book.location || '',
       notes: book.notes || '',
       isbn: book.isbn || '',
       collections: book.collections && book.collections.length > 0 ? book.collections.join(', ') : '',
@@ -107,7 +104,6 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
         publisher: book.publisher || '',
         language: book.language || '',
         pages: book.pages,
-        location: book.location || '',
         notes: book.notes || '',
         isbn: book.isbn || '',
         collections: book.collections && book.collections.length > 0 ? book.collections.join(', ') : '',

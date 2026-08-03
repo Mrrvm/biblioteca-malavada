@@ -43,7 +43,7 @@ function BookGrid({ books, onBookClick }: BookGridProps) {
                         <h3 className="text-black font-medium text-sm leading-tight line-clamp-2">
                             {book.title}
                         </h3>
-                        <p className="text-gray-500 text-xs">
+                        <p className="text-gray-500 text-xs line-clamp-1">
                             {book.author}
                         </p>
                         <div className="flex flex-wrap gap-1 mt-1 items-center">

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { BookMetadata, BookNote, UserBookState, LibraryCollection } from '@/app/types/book';
+import { BookMetadata, BookNote, LibraryCollection } from '@/app/types/book';
 import { BookMetadataForm } from './BookMetadataForm';
 import { bookApi } from '@/lib/api/books';
 import { CameraIcon, Check, EraserIcon, FolderPlus, ImageSquare, PencilIcon, Plus, XIcon } from '@phosphor-icons/react';
@@ -17,8 +17,6 @@ interface BookDetailDrawerProps {
     onDeleteBook?: (book: BookMetadata) => void;
     onBookUpdated?: (book: BookMetadata) => void;
     notes?: BookNote[];
-    userBookState?: UserBookState;
-    onUpdateUserBookState?: (bookId: string, isRead?: boolean, isInReadingList?: boolean) => Promise<void>;
     onCreateNote?: (bookId: string, text?: string) => Promise<void>;
     onDeleteNote?: (noteId: string) => Promise<void>;
     allCollections: LibraryCollection[];
@@ -34,8 +32,6 @@ export default function BookDetailDrawer({
     onDeleteBook,
     onBookUpdated,
     notes,
-    userBookState,
-    onUpdateUserBookState,
     onCreateNote,
     onDeleteNote,
     allCollections,
@@ -47,8 +43,8 @@ export default function BookDetailDrawer({
     const [isEditingMetadata, setIsEditingMetadata] = useState(false);
     const [newNoteText, setNewNoteText] = useState('');
     const [isAddingNote, setIsAddingNote] = useState(false);
+    const [isReading, setIsReading] = useState(false);
 
-    // Store actual File object for upload to images/ directory
     const [pendingCoverFile, setPendingCoverFile] = useState<File | null>(null);
     const [pendingCoverPreview, setPendingCoverPreview] = useState<string | null>(null);
 
@@ -145,7 +141,6 @@ export default function BookDetailDrawer({
             onCollectionCreated?.(created);
             setNewCollectionName('');
             setNewCollectionDescription('');
-            // Add book to the new collection
             await toggleCollection(name, true);
         } catch (err) {
             console.error('Failed to create collection:', err);
@@ -191,11 +186,20 @@ export default function BookDetailDrawer({
         }
     };
 
+    const handleRead = async () => {
+        setIsReading(true);
+        try {
+            await onReadBook(book);
+        } finally {
+            setIsReading(false);
+        }
+    };
+
     const getCoverUrl = (book: BookMetadata): string | undefined => {
         if (book.coverFileId) {
             return `/api/utils/cover-image?fileId=${book.coverFileId}`;
         }
-        return book.coverImage; // fallback for legacy books
+        return book.coverImage;
     };
 
     const effectiveCover = pendingCoverPreview || getCoverUrl(book);
@@ -245,28 +249,16 @@ export default function BookDetailDrawer({
                                             )}
                                         </div>
                                     </div>
-                                    {session && onUpdateUserBookState && (
-                                        <div className="mt-3 flex flex-wrap gap-2">
-                                            <button
-                                                onClick={() => onUpdateUserBookState(book.id, !userBookState?.isRead, userBookState?.isInReadingList)}
-                                                className={`cursor-pointer px-3 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1.5 ${userBookState?.isRead ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
-                                                    }`}
-                                            >
-                                                <Check size={14} />
-                                                {userBookState?.isRead ? 'Read' : 'Mark as Read'}
-                                            </button>
-                                            <button
-                                                onClick={() => setShowCollectionsModal(true)}
-                                                className={`cursor-pointer px-3 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1.5 ${bookCollections.length > 0 ? 'bg-violet-100 text-violet-800' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
-                                                    }`}
-                                            >
-                                                <FolderPlus size={14} />
-                                                {bookCollections.length === 0
-                                                    ? 'Add to Collection'
-                                                    : `In ${bookCollections.length} Collection${bookCollections.length !== 1 ? 's' : ''}`}
-                                            </button>
-                                        </div>
-                                    )}
+                                    <button
+                                        onClick={() => setShowCollectionsModal(true)}
+                                        className={`w-fit cursor-pointer px-3 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1.5 ${bookCollections.length > 0 ? 'bg-violet-100 text-violet-800' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+                                            }`}
+                                    >
+                                        <FolderPlus size={12} />
+                                        {bookCollections.length === 0
+                                            ? 'Add to Collection'
+                                            : `In ${bookCollections.length} Collection${bookCollections.length !== 1 ? 's' : ''}`}
+                                    </button>
                                 </div>
                             </div>
                         )}
@@ -409,10 +401,21 @@ export default function BookDetailDrawer({
 
                     {session?.user && book.fileType !== 'physical' && (
                         <button
-                            onClick={() => onReadBook(book)}
-                            className="cursor-pointer w-full bg-blue-600 text-white py-2.5 px-4 rounded-md hover:bg-blue-700 transition-colors font-medium text-sm"
+                            onClick={handleRead}
+                            disabled={isReading}
+                            className="cursor-pointer w-full bg-blue-600 text-white py-2.5 px-4 rounded-md hover:bg-blue-700 transition-colors font-medium text-sm flex items-center justify-center gap-2 disabled:opacity-50"
                         >
-                            Read Book
+                            {isReading ? (
+                                <>
+                                    <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    Loading...
+                                </>
+                            ) : (
+                                'Read Book'
+                            )}
                         </button>
                     )}
                 </div>
@@ -479,7 +482,15 @@ export default function BookDetailDrawer({
                                         disabled={!newCollectionName.trim() || isCreatingCollection || isSubmitting}
                                         className="cursor-pointer w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md bg-violet-600 text-white hover:bg-violet-700 transition-colors text-xs font-medium disabled:opacity-50"
                                     >
-                                        <Plus size={16} /> {isCreatingCollection ? 'Creating...' : 'Create & Add Book'}
+                                        {isCreatingCollection ? (
+                                            <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                            </svg>
+                                        ) : (
+                                            <Plus size={16} />
+                                        )}
+                                        {isCreatingCollection ? 'Creating...' : 'Create & Add Book'}
                                     </button>
                                 </div>
                             </div>
@@ -510,7 +521,14 @@ export default function BookDetailDrawer({
                                                     </div>
                                                     <div className={`flex-shrink-0 w-4 h-4 rounded border flex items-center justify-center text-[10px] ${isIn ? 'bg-violet-600 border-violet-600 text-white' : 'border-gray-300'
                                                         }`}>
-                                                        {isIn && '✓'}
+                                                        {isSubmitting ? (
+                                                            <svg className="animate-spin h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                            </svg>
+                                                        ) : (
+                                                            isIn && <Check size={12} />
+                                                        )}
                                                     </div>
                                                 </button>
                                             );
