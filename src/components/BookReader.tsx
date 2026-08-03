@@ -48,7 +48,7 @@ export function BookReader({ book, downloadUrl, onClose }: BookReaderProps) {
   const loadPdf = async () => {
     // For PDF, we can use an iframe or object tag
     // In a real implementation, you might use a PDF.js based viewer
-    console.log('Loading PDF:', downloadUrl);
+
     setTotalPages(100); // Placeholder - would need actual PDF parsing
   };
 
@@ -95,7 +95,7 @@ export function BookReader({ book, downloadUrl, onClose }: BookReaderProps) {
   const loadAcsm = async () => {
     // ACSM files are Adobe DRM files that need to be activated
     // This would typically open in Adobe Digital Editions or similar
-    console.log('ACSMs require external activation:', downloadUrl);
+
     setError('ACSMs require Adobe Digital Editions for activation and reading');
   };
 

@@ -155,7 +155,7 @@ export default function Profile() {
 
   const handleReadBook = async (book: BookMetadata) => {
     if (book.fileType === 'physical') {
-      console.log('Viewing physical book details:', book);
+
     } else {
       try {
         const downloadUrl = await bookApi.downloadBook(book.id);

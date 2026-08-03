@@ -57,7 +57,8 @@ function BookGrid({ books, onBookClick }: BookGridProps) {
                                     {book.genres.slice(0, 2).map((genre, index) => (
                                         <span
                                             key={index}
-                                            className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full"
+                                            className="inline-block max-w-[100px] sm:max-w-none truncate bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full"
+                                            title={genre.trim()}
                                         >
                                             {genre.trim()}
                                         </span>
@@ -72,12 +73,12 @@ function BookGrid({ books, onBookClick }: BookGridProps) {
                             {book.collections && (
                                 <>
                                     {
-                                        book.collections.slice(0, 2).map((genre, index) => (
+                                        book.collections.slice(0, 2).map((collection, index) => (
                                             <span
                                                 key={index}
-                                                className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full"
+                                                className="inline-block max-w-[100px] sm:max-w-none truncate bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full"
                                             >
-                                                {genre.trim()}
+                                                {collection.trim()}
                                             </span>
                                         ))
                                     }

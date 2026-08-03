@@ -52,7 +52,7 @@ export async function uploadCoverImage(
 
 async function refreshAccessToken(refreshToken: string): Promise<{ accessToken: string; expiresAt: number } | null> {
   try {
-    console.log('refreshAccessToken: Attempting to refresh access token...');
+
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
     if (!clientId || !clientSecret || !refreshToken) {
@@ -81,7 +81,6 @@ async function refreshAccessToken(refreshToken: string): Promise<{ accessToken: 
     const newAccessToken = data.access_token;
     const expiresIn = data.expires_in || 3600;
     const expiresAt = Date.now() + expiresIn * 1000;
-    console.log('refreshAccessToken: Success! New token expires at', new Date(expiresAt).toISOString());
     return { accessToken: newAccessToken, expiresAt };
   } catch (err) {
     console.error('refreshAccessToken: ERROR during refresh:', err);
@@ -91,7 +90,7 @@ async function refreshAccessToken(refreshToken: string): Promise<{ accessToken: 
 
 export async function extractPdfCoverAsBase64(pdfBuffer: Buffer): Promise<string | null> {
   try {
-    console.log('extractPdfCoverAsBase64: Extracting first page as cover...');
+
 
     // Only use pdf2pic – it's optional and will gracefully fail if not available
     try {
@@ -106,14 +105,14 @@ export async function extractPdfCoverAsBase64(pdfBuffer: Buffer): Promise<string
       });
       const pageToImage = await convert(1, { responseType: 'base64' });
       if (pageToImage && pageToImage.base64) {
-        console.log('extractPdfCoverAsBase64: pdf2pic succeeded');
+
         return `data:image/png;base64,${pageToImage.base64}`;
       }
     } catch (pdf2picErr) {
       console.warn('extractPdfCoverAsBase64: pdf2pic failed (likely missing GraphicsMagick):', (pdf2picErr as Error).message);
     }
 
-    console.log('extractPdfCoverAsBase64: No suitable cover extracted');
+
     return null;
   } catch (error) {
     console.error('extractPdfCoverAsBase64: error:', error);
@@ -123,7 +122,7 @@ export async function extractPdfCoverAsBase64(pdfBuffer: Buffer): Promise<string
 
 export async function extractEpubCoverAsBase64(epubBuffer: Buffer): Promise<string | null> {
   try {
-    console.log('extractEpubCoverAsBase64: Extracting cover from EPUB...');
+
     const zip = await JSZip.loadAsync(epubBuffer);
 
     async function tryReadAsText(path: string): Promise<string | null> {
@@ -139,7 +138,7 @@ export async function extractEpubCoverAsBase64(epubBuffer: Buffer): Promise<stri
         const base64 = imageBuffer.toString('base64');
         const ext = path.split('.').pop()?.toLowerCase();
         const mimeType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-        console.log('extractEpubCoverAsBase64: Found cover at', path);
+
         return `data:${mimeType};base64,${base64}`;
       } catch (e) {
         return null;
@@ -233,7 +232,7 @@ export async function extractEpubCoverAsBase64(epubBuffer: Buffer): Promise<stri
       }
     }
 
-    console.log('extractEpubCoverAsBase64: No cover found in EPUB');
+
     return null;
   } catch (error) {
     console.error('extractEpubCoverAsBase64: error:', error);
@@ -265,22 +264,22 @@ async function getServiceAccountClient() {
   if (!serviceAccountClient) {
     let credentials;
     const keyConfig = process.env.GOOGLE_SERVICE_ACCOUNT_KEY || '';
-    console.log('getServiceAccountClient: Loading credentials from env var, length:', keyConfig.length);
+
     try {
       try {
         credentials = JSON.parse(keyConfig);
-        console.log('getServiceAccountClient: Parsed credentials from JSON string');
+
       } catch (e) {
         const fs = require('fs');
         const path = require('path');
         const keyPath = path.resolve(process.cwd(), keyConfig);
-        console.log('getServiceAccountClient: JSON parse failed, reading key file at path:', keyPath);
+
         credentials = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
-        console.log('getServiceAccountClient: Loaded credentials from file');
+
       }
 
-      console.log('getServiceAccountClient: Credentials client_email present?', !!credentials.client_email);
-      console.log('getServiceAccountClient: Credentials private_key present?', !!credentials.private_key);
+
+
 
       const normalizedCredentials = {
         ...credentials,
@@ -295,9 +294,9 @@ async function getServiceAccountClient() {
       }
       serviceAccountClient = authClientFromJson;
 
-      console.log('getServiceAccountClient: Created JWT client, authorizing...');
+
       const authRes = await authClientFromJson.authorize();
-      console.log('getServiceAccountClient: Authorization successful, token expiry:', authRes.expiry_date);
+
     } catch (credErr) {
       console.error('getServiceAccountClient: ERROR loading or authorizing credentials:', credErr);
       serviceAccountClient = null;
@@ -327,7 +326,7 @@ export async function getGoogleDriveClient(forUser: boolean = false) {
     const isExpired = !expiresAt || Date.now() >= (expiresAt - TOKEN_BUFFER_MS);
 
     if (isExpired && refreshToken) {
-      console.log('getGoogleDriveClient: User access token expired or expiring soon, attempting refresh...');
+
       const refreshed = await refreshAccessToken(refreshToken);
       if (refreshed) {
         accessToken = refreshed.accessToken;
@@ -346,7 +345,7 @@ export async function getGoogleDriveClient(forUser: boolean = false) {
     return google.drive({ version: 'v3', auth: authClient as any });
   } else {
     const authClient = await getServiceAccountClient();
-    console.log('getGoogleDriveClient: Got authenticated service account client, creating drive client');
+
     return google.drive({ version: 'v3', auth: authClient as any });
   }
 }
@@ -437,42 +436,40 @@ async function scanFolderForBooks(drive: any, folderId: string): Promise<BookMet
 }
 
 export async function getLibraryMetadata(drive: any, folderId: string) {
-  console.log('getLibraryMetadata called for folder:', folderId);
+
   try {
-    console.log('About to call drive.files.list for all files');
+
     const allFilesRes = await drive.files.list({
       q: `'${folderId}' in parents and trashed = false`,
       fields: 'files(id, name)',
     });
-    console.log('All files in Google Drive folder:', allFilesRes.data);
 
-    console.log('About to call drive.files.list for metadata file');
+
+
     const res = await drive.files.list({
       q: `'${folderId}' in parents and name = 'biblioteca-malavada-metadata.json' and trashed = false`,
       fields: 'files(id, name)',
     });
-    console.log('Google Drive files.list response for metadata.json:', res.data);
+
 
     if (res.data.files && res.data.files.length > 0) {
       const fileId = res.data.files[0].id;
-      console.log('Found metadata file, id:', fileId);
+
       const fileRes = await drive.files.get(
         { fileId, alt: 'media' },
         { responseType: 'json' }
       );
-      console.log('Metadata file content (pre-normalization):', fileRes.data);
       const normalizedData = normalizeLibraryData(fileRes.data);
-      console.log('Metadata file content (post-normalization):', normalizedData);
       return normalizedData;
     } else {
-      console.log('No metadata file found, scanning for books...');
+
       const books = await scanFolderForBooks(drive, folderId);
-      console.log('Found books:', books);
+
       const libraryData = normalizeLibraryData({
         books,
       });
 
-      console.log('Saving new library data:', libraryData);
+
       await saveLibraryMetadata(drive, folderId, libraryData);
       return libraryData;
     }
@@ -483,13 +480,13 @@ export async function getLibraryMetadata(drive: any, folderId: string) {
 }
 
 export async function saveLibraryMetadata(drive: any, folderId: string, data: any) {
-  console.log('saveLibraryMetadata: saving metadata...');
+
   try {
     const res = await drive.files.list({
       q: `'${folderId}' in parents and name = 'biblioteca-malavada-metadata.json' and trashed = false`,
       fields: 'files(id, name)',
     });
-    console.log('saveLibraryMetadata: found existing files:', res.data);
+
 
     const jsonString = JSON.stringify(data, null, 2);
     const media = {
@@ -499,24 +496,24 @@ export async function saveLibraryMetadata(drive: any, folderId: string, data: an
 
     if (res.data.files && res.data.files.length > 0) {
       const fileId = res.data.files[0].id;
-      console.log('saveLibraryMetadata: updating existing file id:', fileId);
+
       await drive.files.update({
         fileId: fileId,
         media: media,
       });
-      console.log('saveLibraryMetadata: file updated successfully');
+
     } else {
       const fileMetadata = {
         name: 'biblioteca-malavada-metadata.json',
         parents: [folderId],
       };
-      console.log('saveLibraryMetadata: creating new metadata file');
+
       await drive.files.create({
         resource: fileMetadata,
         media: media,
         fields: 'id',
       });
-      console.log('saveLibraryMetadata: file created successfully');
+
     }
   } catch (err) {
     console.error('saveLibraryMetadata: ERROR:', err);
@@ -525,7 +522,7 @@ export async function saveLibraryMetadata(drive: any, folderId: string, data: an
 }
 
 export async function uploadFileToDrive(drive: any, folderId: string, filename: string, mimeType: string, buffer: Buffer) {
-  console.log('uploadFileToDrive: uploading file', filename, 'with mimeType', mimeType, 'size', buffer.length);
+
   try {
     const fileMetadata = {
       name: filename,
@@ -542,7 +539,7 @@ export async function uploadFileToDrive(drive: any, folderId: string, filename: 
       media: media,
       fields: 'id, webViewLink, webContentLink',
     });
-    console.log('uploadFileToDrive: success, file id:', file.data.id);
+
 
     return file.data;
   } catch (err) {

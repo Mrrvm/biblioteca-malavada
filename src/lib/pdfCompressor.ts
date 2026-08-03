@@ -16,7 +16,7 @@ export async function compressPDFIfNeeded(
   fileName: string
 ): Promise<CompressionResult> {
   const originalSize = fileBuffer.byteLength;
-  
+
   // Check if file is PDF and larger than 10MB
   if (!fileName.toLowerCase().endsWith('.pdf') || originalSize <= MAX_FILE_SIZE) {
     return {
@@ -28,7 +28,7 @@ export async function compressPDFIfNeeded(
     };
   }
 
-  console.log(`Compressing PDF: ${fileName} (${formatFileSize(originalSize)})`);
+})`);
 
   try {
     // Load the PDF document
@@ -50,41 +50,41 @@ export async function compressPDFIfNeeded(
     const compressedSize = compressedPdfBytes.length;
     const compressionRatio = compressedSize / originalSize;
 
-    console.log(`PDF compressed: ${formatFileSize(originalSize)} → ${formatFileSize(compressedSize)} (${(compressionRatio * 100).toFixed(1)}%)`);
+} → ${formatFileSize(compressedSize)} (${(compressionRatio * 100).toFixed(1)}%)`);
 
-    return {
-      compressed: true,
-      buffer: compressedPdfBytes,
-      originalSize,
-      compressedSize,
-      compressionRatio
-    };
+return {
+  compressed: true,
+  buffer: compressedPdfBytes,
+  originalSize,
+  compressedSize,
+  compressionRatio
+};
   } catch (error) {
-    console.error('PDF compression failed:', error);
-    // If compression fails, return the original file
-    return {
-      compressed: false,
-      buffer: new Uint8Array(fileBuffer),
-      originalSize,
-      compressedSize: originalSize,
-      compressionRatio: 1
-    };
-  }
+  console.error('PDF compression failed:', error);
+  // If compression fails, return the original file
+  return {
+    compressed: false,
+    buffer: new Uint8Array(fileBuffer),
+    originalSize,
+    compressedSize: originalSize,
+    compressionRatio: 1
+  };
+}
 }
 
 function formatFileSize(bytes: number): string {
   if (bytes === 0) return '0 Bytes';
-  
+
   const k = 1024;
   const sizes = ['Bytes', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  
+
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
 export async function shouldCompressPDF(fileBuffer: ArrayBuffer, fileName: string): Promise<boolean> {
   return (
-    fileName.toLowerCase().endsWith('.pdf') && 
+    fileName.toLowerCase().endsWith('.pdf') &&
     fileBuffer.byteLength > MAX_FILE_SIZE
   );
 }

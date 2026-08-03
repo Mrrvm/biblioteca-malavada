@@ -133,7 +133,7 @@ function Library() {
 
   const handleReadBook = async (book: BookMetadata) => {
     if (book.fileType === 'physical') {
-      console.log('Viewing physical book details:', book);
+
     } else {
       try {
         const downloadUrl = await bookApi.downloadBook(book.id);
@@ -211,7 +211,7 @@ function Library() {
   return (
     <div className="min-h-screen bg-gray-50 w-full">
       <header className="bg-white border-b border-gray-200 p-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-start gap-3 sm:items-center justify-between">
           <h1 className="text-xl font-bold text-gray-900">biblioteca malavada</h1>
           <div className="flex items-center gap-4">
             {session ? (

@@ -71,10 +71,8 @@ export async function POST(request: NextRequest) {
 
     if (customCoverFile && customCoverFile.size > 0) {
       try {
-        console.log('Using custom cover image uploaded by user:', customCoverFile.name);
         const coverBuffer = Buffer.from(await customCoverFile.arrayBuffer());
         coverFileId = await uploadCoverImage(userDrive, GOOGLE_DRIVE_FOLDER_ID, id, coverBuffer, customCoverFile.type);
-        console.log('Custom cover uploaded with file id:', coverFileId);
       } catch (customCoverErr) {
         console.warn('Failed to upload custom cover:', customCoverErr);
       }
@@ -107,7 +105,7 @@ export async function POST(request: NextRequest) {
         }
         if (coverBuffer) {
           coverFileId = await uploadCoverImage(userDrive, GOOGLE_DRIVE_FOLDER_ID, id, coverBuffer, mimeType);
-          console.log('Extracted cover uploaded with file id:', coverFileId);
+
         }
       } catch (extractErr) {
         console.warn('Failed to extract/upload cover from file:', extractErr);
@@ -126,7 +124,7 @@ export async function POST(request: NextRequest) {
             const coverBuffer = Buffer.from(arrayBuffer);
             const contentType = response.headers.get('content-type') || 'image/jpeg';
             coverFileId = await uploadCoverImage(userDrive, GOOGLE_DRIVE_FOLDER_ID, id, coverBuffer, contentType);
-            console.log('Online cover uploaded with file id:', coverFileId);
+
           }
         }
       } catch (coverError) {
@@ -143,7 +141,7 @@ export async function POST(request: NextRequest) {
     libraryData.books.push(bookMetadata);
 
     if (bookMetadata.fileType !== 'physical' && file) {
-      console.log('Uploading file to Google Drive:', file.name);
+
       const fileBuffer = Buffer.from(await file.arrayBuffer());
       const uploadedFile = await uploadFileToDrive(userDrive, GOOGLE_DRIVE_FOLDER_ID, `${id}-${file.name}`, file.type, fileBuffer);
       bookMetadata.filePath = uploadedFile.id;
