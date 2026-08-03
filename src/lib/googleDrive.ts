@@ -10,6 +10,46 @@ import JSZip from 'jszip';
 
 let serviceAccountClient: JWT | null = null;
 
+/**
+ * Helper to find or create a subfolder inside a given parent folder.
+ */
+async function findOrCreateSubfolder(drive: any, parentId: string, name: string): Promise<string> {
+  const res = await drive.files.list({
+    q: `'${parentId}' in parents and name='${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    fields: 'files(id)',
+  });
+  if (res.data.files && res.data.files.length > 0) {
+    return res.data.files[0].id;
+  }
+  const folder = await drive.files.create({
+    resource: {
+      name,
+      mimeType: 'application/vnd.google-apps.folder',
+      parents: [parentId],
+    },
+    fields: 'id',
+  });
+  return folder.data.id;
+}
+
+/**
+ * Upload a cover image to the images/ subfolder of the library.
+ * Returns the file ID.
+ */
+export async function uploadCoverImage(
+  drive: any,
+  folderId: string,
+  bookId: string,
+  imageBuffer: Buffer,
+  mimeType: string = 'image/jpeg'
+): Promise<string> {
+  const imagesFolderId = await findOrCreateSubfolder(drive, folderId, 'images');
+  const ext = mimeType.includes('png') ? 'png' : (mimeType.includes('webp') ? 'webp' : 'jpg');
+  const fileName = `${bookId}-cover.${ext}`;
+  const file = await uploadFileToDrive(drive, imagesFolderId, fileName, mimeType, imageBuffer);
+  return file.id;
+}
+
 async function refreshAccessToken(refreshToken: string): Promise<{ accessToken: string; expiresAt: number } | null> {
   try {
     console.log('refreshAccessToken: Attempting to refresh access token...');

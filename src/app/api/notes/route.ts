@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { BookNote, LibraryData } from '@/app/types/book';
-import { getGoogleDriveClient, getLibraryMetadata, saveLibraryMetadata, uploadFileToDrive, normalizeLibraryData } from '@/lib/googleDrive';
+import { getGoogleDriveClient, getLibraryMetadata, saveLibraryMetadata, normalizeLibraryData } from '@/lib/googleDrive';
 import { auth } from '../auth/[...nextauth]/route';
 
 const GOOGLE_DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID!;
@@ -25,11 +25,10 @@ export async function POST(request: NextRequest) {
     if (!session || !session.user?.id) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
-    const drive = await getGoogleDriveClient(true); // Use user OAuth client
+    const drive = await getGoogleDriveClient(true);
 
     const formData = await request.formData();
     const text = formData.get('text') as string | null;
-    const image = formData.get('image') as File | null;
     const bookId = formData.get('bookId') as string;
 
     if (!bookId) {
@@ -45,12 +44,6 @@ export async function POST(request: NextRequest) {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-
-    if (image) {
-      const fileBuffer = Buffer.from(await image.arrayBuffer());
-      const uploadedFile = await uploadFileToDrive(drive, GOOGLE_DRIVE_FOLDER_ID, `${id}-${image.name}`, image.type, fileBuffer);
-      note.imageUrl = uploadedFile.id;
-    }
 
     const libraryData = await getLibraryData(drive);
     libraryData.notes.push(note);
@@ -71,7 +64,7 @@ export async function DELETE(request: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
-    const drive = await getGoogleDriveClient(true); // Use user OAuth client
+    const drive = await getGoogleDriveClient(true);
 
     const { id } = await request.json();
 

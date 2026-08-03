@@ -10,7 +10,6 @@ export interface BookNote {
   userId: string;
   bookId: string;
   text?: string;
-  imageUrl?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -58,7 +57,8 @@ export interface BookMetadata {
   publisher?: string;
   language?: string;
   pages?: number;
-  coverImage?: string;
+  coverImage?: string;        // legacy – kept for backward compatibility
+  coverFileId?: string;       // new: Drive file ID for the cover image
   filePath?: string;
   fileType: 'epub' | 'pdf' | 'acsm' | 'physical';
   collections: string[];
@@ -69,7 +69,7 @@ export interface BookMetadata {
 }
 
 export interface UploadBookRequest {
-  metadata: Omit<BookMetadata, 'id' | 'createdAt' | 'updatedAt' | 'filePath'>;
+  metadata: Omit<BookMetadata, 'id' | 'createdAt' | 'updatedAt' | 'filePath' | 'coverFileId'>;
   file?: File;
 }
 

@@ -64,21 +64,24 @@ export const bookApi = {
     return response.json();
   },
 
-  async updateBook(id: string, metadata: Partial<BookMetadata>): Promise<BookMetadata> {
+  async updateBook(id: string, metadata: Partial<BookMetadata>, coverFile?: File): Promise<BookMetadata> {
+    const formData = new FormData();
+    formData.append('metadata', JSON.stringify(metadata));
+    if (coverFile) {
+      formData.append('coverFile', coverFile);
+    }
     const response = await fetch(`${API_BASE}/${id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(metadata),
+      body: formData,
     });
     if (!response.ok) throw new Error('Failed to update book');
     return response.json();
   },
 
-  async createNote(bookId: string, text?: string, image?: File): Promise<BookNote> {
+  async createNote(bookId: string, text?: string): Promise<BookNote> {
     const formData = new FormData();
     formData.append('bookId', bookId);
     if (text) formData.append('text', text);
-    if (image) formData.append('image', image);
     const response = await fetch('/api/notes', { method: 'POST', body: formData });
     if (!response.ok) throw new Error('Failed to create note');
     return response.json();

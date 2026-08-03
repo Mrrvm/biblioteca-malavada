@@ -7,7 +7,8 @@ import {
   uploadFileToDrive,
   normalizeLibraryData,
   extractPdfCoverAsBase64,
-  extractEpubCoverAsBase64
+  extractEpubCoverAsBase64,
+  uploadCoverImage,
 } from '@/lib/googleDrive';
 import { searchCoverImage } from '../utils/coverImage';
 import { auth } from '../auth/[...nextauth]/route';
@@ -16,9 +17,7 @@ const GOOGLE_DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID!;
 
 async function getLibraryData(drive: any): Promise<LibraryData> {
   try {
-    console.log('Calling getLibraryMetadata...');
     const data = await getLibraryMetadata(drive, GOOGLE_DRIVE_FOLDER_ID);
-    console.log('getLibraryMetadata returned:', data);
     return normalizeLibraryData(data);
   } catch (error) {
     console.error('Error fetching library data:', error);
@@ -67,64 +66,89 @@ export async function POST(request: NextRequest) {
       updatedAt: new Date().toISOString(),
     };
 
+    // --- Handle cover image ---
+    let coverFileId: string | undefined;
+
     if (customCoverFile && customCoverFile.size > 0) {
       try {
         console.log('Using custom cover image uploaded by user:', customCoverFile.name);
         const coverBuffer = Buffer.from(await customCoverFile.arrayBuffer());
-        const uploadedCover = await uploadFileToDrive(
-          userDrive,
-          GOOGLE_DRIVE_FOLDER_ID,
-          `${id}-cover.${customCoverFile.type.includes('png') ? 'png' : 'jpg'}`,
-          customCoverFile.type,
-          coverBuffer
-        );
-        const base64Cover = coverBuffer.toString('base64');
-        bookMetadata.coverImage = `data:${customCoverFile.type};base64,${base64Cover}`;
-        console.log('Custom cover image applied successfully (file saved to drive id:', uploadedCover.id, ')');
+        coverFileId = await uploadCoverImage(userDrive, GOOGLE_DRIVE_FOLDER_ID, id, coverBuffer, customCoverFile.type);
+        console.log('Custom cover uploaded with file id:', coverFileId);
       } catch (customCoverErr) {
-        console.warn('Failed to process custom cover, will try other methods:', customCoverErr);
+        console.warn('Failed to upload custom cover:', customCoverErr);
       }
     }
 
-    if (!bookMetadata.coverImage && bookMetadata.fileType !== 'physical' && file) {
+    // If no custom cover and we have a digital file, try to extract cover from file
+    if (!coverFileId && file && bookMetadata.fileType !== 'physical') {
       try {
         const fileBuffer = Buffer.from(await file.arrayBuffer());
+        let coverBuffer: Buffer | null = null;
+        let mimeType = 'image/jpeg';
         if (bookMetadata.fileType === 'pdf') {
-          const pdfCover = await extractPdfCoverAsBase64(fileBuffer);
-          if (pdfCover) {
-            bookMetadata.coverImage = pdfCover;
-            console.log('Applied PDF first page as cover');
+          const base64 = await extractPdfCoverAsBase64(fileBuffer);
+          if (base64) {
+            const matches = base64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+            if (matches) {
+              mimeType = matches[1];
+              coverBuffer = Buffer.from(matches[2], 'base64');
+            }
           }
         } else if (bookMetadata.fileType === 'epub') {
-          const epubCover = await extractEpubCoverAsBase64(fileBuffer);
-          if (epubCover) {
-            bookMetadata.coverImage = epubCover;
-            console.log('Applied EPUB cover as cover');
+          const base64 = await extractEpubCoverAsBase64(fileBuffer);
+          if (base64) {
+            const matches = base64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+            if (matches) {
+              mimeType = matches[1];
+              coverBuffer = Buffer.from(matches[2], 'base64');
+            }
           }
         }
-      } catch (extractCoverErr) {
-        console.warn('Failed to extract cover from file:', extractCoverErr);
+        if (coverBuffer) {
+          coverFileId = await uploadCoverImage(userDrive, GOOGLE_DRIVE_FOLDER_ID, id, coverBuffer, mimeType);
+          console.log('Extracted cover uploaded with file id:', coverFileId);
+        }
+      } catch (extractErr) {
+        console.warn('Failed to extract/upload cover from file:', extractErr);
       }
     }
 
-    if (!bookMetadata.coverImage) {
+    // If still no cover, try online search and upload if a URL is found
+    if (!coverFileId) {
       try {
-        bookMetadata.coverImage = await searchCoverImage(bookMetadata);
+        const onlineCoverUrl = await searchCoverImage(bookMetadata);
+        if (onlineCoverUrl) {
+          // Download the image and upload to Drive
+          const response = await fetch(onlineCoverUrl);
+          if (response.ok) {
+            const arrayBuffer = await response.arrayBuffer();
+            const coverBuffer = Buffer.from(arrayBuffer);
+            const contentType = response.headers.get('content-type') || 'image/jpeg';
+            coverFileId = await uploadCoverImage(userDrive, GOOGLE_DRIVE_FOLDER_ID, id, coverBuffer, contentType);
+            console.log('Online cover uploaded with file id:', coverFileId);
+          }
+        }
       } catch (coverError) {
-        console.warn('Error searching cover image online during upload:', coverError);
-        bookMetadata.coverImage = '';
+        console.warn('Error fetching/uploading online cover:', coverError);
       }
     }
 
+    if (coverFileId) {
+      bookMetadata.coverFileId = coverFileId;
+    }
+
+    // --- Upload the book file if digital ---
     const libraryData = await getLibraryData(serviceDrive);
     libraryData.books.push(bookMetadata);
 
     if (bookMetadata.fileType !== 'physical' && file) {
-      console.log('Uploading file to Google Drive (using user OAuth):', file.name);
+      console.log('Uploading file to Google Drive:', file.name);
       const fileBuffer = Buffer.from(await file.arrayBuffer());
       const uploadedFile = await uploadFileToDrive(userDrive, GOOGLE_DRIVE_FOLDER_ID, `${id}-${file.name}`, file.type, fileBuffer);
       bookMetadata.filePath = uploadedFile.id;
     }
+
     await saveLibraryData(userDrive, libraryData);
     return NextResponse.json(bookMetadata);
   } catch (error) {

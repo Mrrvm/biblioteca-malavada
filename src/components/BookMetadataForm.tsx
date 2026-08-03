@@ -135,7 +135,7 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
     return (
       <div className="space-y-4 text-sm">
         {book.description && (
-          <p className="text-gray-900 leading-relaxed">
+          <div className="text-gray-900 leading-relaxed">
             {book.description.length > 200 && !isDescriptionExpanded
               ? `${book.description.substring(0, 200)}...`
               : book.description}
@@ -148,16 +148,16 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
                 {isDescriptionExpanded ? 'read less' : 'read more'}
               </button>
             )}
-          </p>
+          </div>
         )}
         {book.genres && book.genres.length > 0 && (
           <div>
             <span className="font-medium text-gray-500">Genres</span>
-            <div className="flex flex-wrap gap-1.5 mt-1.5">
+            <div className="flex flex-wrap gap-1.5 mt-1">
               {book.genres.map((genre, index) => (
                 <span
                   key={index}
-                  className="bg-blue-100 text-blue-800 text-xs px-2.5 py-0.5 rounded-full"
+                  className="bg-blue-100 text-blue-800 text-sm px-2.5 py-0.5 rounded-full"
                 >
                   {genre.trim()}
                 </span>
@@ -165,7 +165,22 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
             </div>
           </div>
         )}
-        <div className="grid grid-cols-2 gap-4">
+        {book.collections && book.collections.length > 0 && (
+          <div>
+            <span className="font-medium text-gray-500">Collections</span>
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {book.collections.map((collection, index) => (
+                <span
+                  key={index}
+                  className="bg-green-100 text-green-800 text-sm px-2.5 py-0.5 rounded-full"
+                >
+                  {collection}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(0,1fr))] gap-4">
           {book.publisher && (
             <div>
               <span className="font-medium text-gray-500">Publisher</span>
@@ -179,7 +194,7 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
             </div>
           )}
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(0,1fr))] gap-4">
           {book.language && (
             <div>
               <span className="font-medium text-gray-500">Language</span>
@@ -194,27 +209,11 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
               <p className="text-gray-900">{book.pages}</p>
             </div>
           )}
-          {book.isbn && (
-            <div>
-              <span className="font-medium text-gray-500">ISBN</span>
-              <p className="text-gray-900">{book.isbn}</p>
-            </div>
-          )}
         </div>
-        
-        {book.collections && book.collections.length > 0 && (
+        {book.isbn && (
           <div>
-            <span className="font-medium text-gray-500">Collections</span>
-            <div className="flex flex-wrap gap-1.5 mt-1.5">
-              {book.collections.map((collection, index) => (
-                <span
-                  key={index}
-                  className="bg-green-100 text-green-800 text-xs px-2.5 py-0.5 rounded-full"
-                >
-                  {collection}
-                </span>
-              ))}
-            </div>
+            <span className="font-medium text-gray-500">Ref</span>
+            <p className="text-gray-900">{book.isbn}</p>
           </div>
         )}
       </div>
@@ -222,7 +221,7 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
   }
 
   return (
-    <form onSubmit={handleSubmit(handleFormSubmit)} noValidate className="space-y-4 my-2">
+    <form onSubmit={handleSubmit(handleFormSubmit)} noValidate className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Title</label>
@@ -328,7 +327,7 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
         />
       </div>
 
-      <div className="flex justify-end items-center gap-2 pt-2">
+      <div className="flex justify-end items-center gap-2">
         <button
           type="button"
           onClick={onCancel}

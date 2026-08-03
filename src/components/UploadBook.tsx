@@ -5,18 +5,21 @@ import { bookApi } from '@/lib/api/books';
 import { UploadBookRequest } from '@/app/types/book';
 import { extractBookMetadata } from '@/lib/metadataExtractor';
 import { CameraIcon, ImageSquare, XIcon } from '@phosphor-icons/react';
+import MultiSelect from './MultiSelect';
 
 interface UploadBookProps {
-    onUploadComplete?: () => void;
+    onUploadComplete?: (newBook: any) => void;
+    collectionsOptions?: string[];
+    genresOptions?: string[];
 }
 
-export function UploadBook({ onUploadComplete }: UploadBookProps) {
+export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOptions = [] }: UploadBookProps) {
     const [uploading, setUploading] = useState(false);
     const [extracting, setExtracting] = useState(false);
     const [file, setFile] = useState<File | null>(null);
     const [customCover, setCustomCover] = useState<File | null>(null);
     const [customCoverPreview, setCustomCoverPreview] = useState<string | null>(null);
-    
+
     const fileInputRef = useRef<HTMLInputElement>(null);
     const cameraInputRef = useRef<HTMLInputElement>(null);
     const coverInputRef = useRef<HTMLInputElement>(null);
@@ -31,6 +34,8 @@ export function UploadBook({ onUploadComplete }: UploadBookProps) {
         author: '',
         fileType: 'epub',
         collections: [],
+        genres: [],
+        publicationDate: '',
     });
 
     useEffect(() => {
@@ -129,13 +134,12 @@ export function UploadBook({ onUploadComplete }: UploadBookProps) {
         setUploading(true);
 
         try {
-            // customCover File is sent directly so the backend saves it in drive folder images/
-            await bookApi.uploadBook(
+            const newBook = await bookApi.uploadBook(
                 { metadata },
                 metadata.fileType === 'physical' ? undefined : file!,
                 customCover || undefined
             );
-            
+
             setFile(null);
             setCustomCover(null);
             setCustomCoverPreview(null);
@@ -147,8 +151,10 @@ export function UploadBook({ onUploadComplete }: UploadBookProps) {
                 author: '',
                 fileType: 'epub',
                 collections: [],
+                genres: [],
+                publicationDate: '',
             });
-            onUploadComplete?.();
+            onUploadComplete?.(newBook);
         } catch (error) {
             console.error('Upload failed:', error);
             alert(`Upload failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -326,10 +332,13 @@ export function UploadBook({ onUploadComplete }: UploadBookProps) {
 
             <div className='flex flex-row gap-4'>
                 <div className='flex flex-col gap-1 w-full'>
-                    <label className="text-sm font-medium text-gray-700">Publication Date</label>
+                    <label className="text-sm font-medium text-gray-700">Publication Year</label>
                     <input
                         className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
-                        type="date"
+                        type="number"
+                        min="1000"
+                        max={new Date().getFullYear()}
+                        placeholder="e.g. 2024"
                         value={metadata.publicationDate || ''}
                         onChange={(e) => setMetadata({ ...metadata, publicationDate: e.target.value })}
                     />
@@ -354,33 +363,33 @@ export function UploadBook({ onUploadComplete }: UploadBookProps) {
                     <input
                         className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
                         type="number"
+                        min="1"
                         value={metadata.pages || ''}
                         onChange={(e) => setMetadata({ ...metadata, pages: Number(e.target.value) })}
                     />
                 </div>
             </div>
 
-            <div className='flex flex-row gap-4'>
-                <div className='flex flex-col gap-1 w-full'>
-                    <label className="text-sm font-medium text-gray-700">Genres</label>
-                    <input
-                        className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
-                        type="text"
-                        value={metadata.genres?.join(', ') || ''}
-                        onChange={(e) => setMetadata({ ...metadata, genres: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
-                        placeholder="comma separated"
-                    />
-                </div>
-                <div className='flex flex-col gap-1 w-full'>
-                    <label className="text-sm font-medium text-gray-700">Collections</label>
-                    <input
-                        className='h-10 px-2 border border-gray-300 rounded-md text-gray-900'
-                        type="text"
-                        value={metadata.collections?.join(', ') || ''}
-                        onChange={(e) => setMetadata({ ...metadata, collections: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
-                        placeholder="comma separated"
-                    />
-                </div>
+            <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Genres</label>
+                <MultiSelect
+                    options={genresOptions}
+                    selected={metadata.genres || []}
+                    onChange={(v) => setMetadata(prev => ({ ...prev, genres: v }))}
+                    placeholder="Search or add a genre…"
+                    creatable
+                />
+            </div>
+
+            <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Collections</label>
+                <MultiSelect
+                    options={collectionsOptions}
+                    selected={metadata.collections || []}
+                    onChange={(v) => setMetadata(prev => ({ ...prev, collections: v }))}
+                    placeholder="Search or add a collection…"
+                    creatable
+                />
             </div>
 
             <div className='flex flex-row w-full gap-4 pt-2'>

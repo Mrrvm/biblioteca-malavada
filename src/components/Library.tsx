@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { BookMetadata, LibraryData, BookNote, UserBookState } from '@/app/types/book';
+import { BookMetadata, LibraryData, BookNote, UserBookState, LibraryCollection } from '@/app/types/book';
 import { bookApi } from '@/lib/api/books';
 import BookGrid from './BookGrid';
 import SearchBar from './SearchBar';
@@ -26,7 +26,6 @@ function Library() {
     loadLibraryData();
   }, []);
 
-
   useEffect(() => {
     if (selectedBook) {
       const book = libraryData.books.find(book => book.id === selectedBook.id);
@@ -48,6 +47,60 @@ function Library() {
       setLoading(false);
     }
   };
+
+  // --- Local state update helpers ---
+  const updateBookInState = (updatedBook: BookMetadata) => {
+    setLibraryData(prev => ({
+      ...prev,
+      books: prev.books.map(b => b.id === updatedBook.id ? updatedBook : b),
+    }));
+  };
+
+  const updateUserBookStateInState = (updatedState: UserBookState) => {
+    setLibraryData(prev => ({
+      ...prev,
+      userBookStates: prev.userBookStates.map(s =>
+        s.userId === updatedState.userId && s.bookId === updatedState.bookId ? updatedState : s
+      ),
+    }));
+  };
+
+  const addNoteInState = (newNote: BookNote) => {
+    setLibraryData(prev => ({
+      ...prev,
+      notes: [...prev.notes, newNote],
+    }));
+  };
+
+  const deleteNoteInState = (noteId: string) => {
+    setLibraryData(prev => ({
+      ...prev,
+      notes: prev.notes.filter(n => n.id !== noteId),
+    }));
+  };
+
+  const deleteBookInState = (bookId: string) => {
+    setLibraryData(prev => ({
+      ...prev,
+      books: prev.books.filter(b => b.id !== bookId),
+    }));
+    setIsDrawerOpen(false);
+  };
+
+  const addBookInState = (newBook: BookMetadata) => {
+    setLibraryData(prev => ({
+      ...prev,
+      books: [...prev.books, newBook],
+    }));
+  };
+
+  const addCollectionInState = (newCollection: LibraryCollection) => {
+    setLibraryData(prev => ({
+      ...prev,
+      collections: [...prev.collections, newCollection],
+    }));
+  };
+  // --- end helpers ---
 
   const uniqueCollections = useMemo(() => {
     const collections = new Set<string>();
@@ -87,11 +140,9 @@ function Library() {
 
   const handleReadBook = async (book: BookMetadata) => {
     if (book.fileType === 'physical') {
-      // For physical books, we might want to show more details or open external links
       console.log('Viewing physical book details:', book);
     } else {
       try {
-        // For digital books, get download URL
         const downloadUrl = await bookApi.downloadBook(book.id);
         window.open(downloadUrl, '_blank');
       } catch (err) {
@@ -101,20 +152,52 @@ function Library() {
     }
   };
 
-  const handleBookUploaded = () => {
+  const handleBookUploaded = (newBook: BookMetadata) => {
     setIsUploadModalOpen(false);
-    loadLibraryData(); // Reload books after upload
+    addBookInState(newBook);
   };
 
   const handleDeleteBook = async (book: BookMetadata) => {
     try {
       await bookApi.deleteBook(book.id);
-      loadLibraryData(); // Reload books after delete
-      setIsDrawerOpen(false); // Close the drawer
+      deleteBookInState(book.id);
     } catch (err) {
       console.error('Error deleting book:', err);
       alert('Failed to delete book');
     }
+  };
+
+  const handleUpdateUserBookState = async (bookId: string, isRead?: boolean, isInReadingList?: boolean) => {
+    if (!session) return;
+    try {
+      const updated = await bookApi.updateUserBookState(bookId, isRead, isInReadingList);
+      updateUserBookStateInState(updated);
+    } catch (err) {
+      console.error('Failed to update user book state:', err);
+    }
+  };
+
+  const handleCreateNote = async (bookId: string, text?: string) => {
+    if (!session) return;
+    try {
+      const newNote = await bookApi.createNote(bookId, text);
+      addNoteInState(newNote);
+    } catch (err) {
+      console.error('Failed to create note:', err);
+    }
+  };
+
+  const handleDeleteNote = async (noteId: string) => {
+    try {
+      await bookApi.deleteNote(noteId);
+      deleteNoteInState(noteId);
+    } catch (err) {
+      console.error('Failed to delete note:', err);
+    }
+  };
+
+  const handleCollectionCreated = (newCollection: LibraryCollection) => {
+    addCollectionInState(newCollection);
   };
 
   if (loading) {
@@ -146,29 +229,27 @@ function Library() {
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b border-gray-200 p-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <h1 className="text-3xl font-bold text-gray-900">Biblioteca Malavada</h1>
+          <h1 className="text-xl font-bold text-gray-900">biblioteca malavada</h1>
           <div className="flex items-center gap-4">
-            {session && (
-              <button
-                onClick={() => setIsUploadModalOpen(true)}
-                className="cursor-pointer bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors"
-              >
-                Upload Book
-              </button>
-            )}
             {session ? (
               <>
                 {session.user?.image && (
                   <img
                     src={session.user.image}
                     alt={session.user.name || 'User'}
-                    className="w-10 h-10 rounded-full cursor-pointer"
+                    className="text-xs w-8 h-8 rounded-full cursor-pointer"
                     onClick={() => window.location.href = '/profile'}
                   />
                 )}
                 <button
+                  onClick={() => setIsUploadModalOpen(true)}
+                  className="text-xs cursor-pointer bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors"
+                >
+                  Upload Book
+                </button>
+                <button
                   onClick={() => signOut()}
-                  className="cursor-pointer bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 transition-colors"
+                  className="text-xs cursor-pointer bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 transition-colors"
                 >
                   Sign out
                 </button>
@@ -190,51 +271,37 @@ function Library() {
         onChange={setSearchQuery}
         placeholder="Search by title or author..."
       />
-
-      <div className="flex flex-wrap items-center gap-4 p-4 max-w-7xl mx-auto">
-        <MultiSelect
-          options={uniqueCollections}
-          selected={selectedCollections}
-          onChange={setSelectedCollections}
-          placeholder="All Collections"
-          label="Collections"
-        />
-        <MultiSelect
-          options={uniqueGenres}
-          selected={selectedGenres}
-          onChange={setSelectedGenres}
-          placeholder="All Genres"
-          label="Genres"
-        />
-      </div>
-
-      <main className="flex-1">
-        <div className="max-w-7xl mx-auto">
-          <div className="px-4 py-6">
-            <div>
-              <p className="text-gray-600 mt-1">
-                {libraryData.books.length} book{libraryData.books.length !== 1 ? 's' : ''} total
-                {searchQuery && ` • ${filteredBooks.length} found`}
-              </p>
-            </div>
-          </div>
-
-          {filteredBooks.length === 0 ? (
-            <div className="text-center py-12">
-              <h3 className="text-lg font-medium text-gray-900 mb-2">
-                {searchQuery ? 'No books found' : 'No books in your library'}
-              </h3>
-              <p className="text-gray-500">
-                {searchQuery
-                  ? 'Try adjusting your search terms'
-                  : 'Start by uploading your first book'}
-              </p>
-            </div>
-          ) : (
-            <BookGrid books={filteredBooks} onBookClick={handleBookClick} />
-          )}
+      <main className="p-4 flex-1 flex-col space-y-3 items-start justify-start pb-8">
+        <div className="flex flex-wrap gap-3">
+          <MultiSelect
+            options={uniqueGenres}
+            selected={selectedGenres}
+            onChange={setSelectedGenres}
+            placeholder="All Genres"
+            label="Genres"
+          />
+          <MultiSelect
+            options={uniqueCollections}
+            selected={selectedCollections}
+            onChange={setSelectedCollections}
+            placeholder="All Collections"
+            label="Collections"
+          />
         </div>
-      </main>
+
+        <p className="text-gray-600 text-sm">
+          {libraryData.books.length} book{libraryData.books.length !== 1 ? 's' : ''} total
+          {searchQuery && ` • ${filteredBooks.length} found`}
+        </p>
+
+        {filteredBooks.length === 0 ? (
+          <h3 className="text-center text-lg font-medium text-gray-900 mb-2">
+            {searchQuery ? 'No books found' : 'No books in your library'}
+          </h3>
+        ) : (
+          <BookGrid books={filteredBooks} onBookClick={handleBookClick} />
+        )}
+      </main >
 
       <BookDetailDrawer
         book={selectedBook}
@@ -242,47 +309,44 @@ function Library() {
         onClose={handleCloseDrawer}
         onReadBook={handleReadBook}
         onDeleteBook={session ? handleDeleteBook : undefined}
-        onBookUpdated={loadLibraryData}
+        onBookUpdated={updateBookInState}
         notes={libraryData.notes.filter(note => note.bookId === (selectedBook?.id || ''))}
         userBookState={session ? libraryData.userBookStates.find(state => state.bookId === (selectedBook?.id || '') && state.userId === session.user?.id) : undefined}
-        onUpdateUserBookState={session ? async (bookId, isRead, isInReadingList) => {
-          await bookApi.updateUserBookState(bookId, isRead, isInReadingList);
-          await loadLibraryData();
-        } : undefined}
-        onCreateNote={session ? async (bookId, text, image) => {
-          await bookApi.createNote(bookId, text, image);
-          await loadLibraryData();
-        } : undefined}
-        onDeleteNote={session ? async (noteId) => {
-          await bookApi.deleteNote(noteId);
-          await loadLibraryData();
-        } : undefined}
+        onUpdateUserBookState={session ? handleUpdateUserBookState : undefined}
+        onCreateNote={session ? handleCreateNote : undefined}
+        onDeleteNote={session ? handleDeleteNote : undefined}
         allCollections={libraryData.collections}
         allGenres={uniqueGenres}
-        onCollectionsChanged={loadLibraryData}
+        onCollectionCreated={handleCollectionCreated}
       />
 
-      {isUploadModalOpen && session && (
-        <div className="text-black fixed inset-0 bg-opacity-20 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-xl">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-semibold">Upload Book</h2>
-                <button
-                  onClick={() => setIsUploadModalOpen(false)}
-                  className="cursor-pointer p-2"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+      {
+        isUploadModalOpen && session && (
+          <div className="text-black fixed inset-0 bg-opacity-20 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-xl">
+              <div className="p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-xl font-semibold">Upload Book</h2>
+                  <button
+                    onClick={() => setIsUploadModalOpen(false)}
+                    className="cursor-pointer p-2"
+                  >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                <UploadBook
+                  onUploadComplete={handleBookUploaded}
+                  collectionsOptions={libraryData.collections.map(c => c.name)}
+                  genresOptions={uniqueGenres}
+                />
               </div>
-              <UploadBook onUploadComplete={handleBookUploaded} />
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )
+      }
+    </div >
   );
 }
 

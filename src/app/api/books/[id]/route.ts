@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { BookMetadata, LibraryData } from '@/app/types/book';
-import { getGoogleDriveClient, getLibraryMetadata, saveLibraryMetadata, normalizeLibraryData } from '@/lib/googleDrive';
+import { getGoogleDriveClient, getLibraryMetadata, saveLibraryMetadata, normalizeLibraryData, uploadCoverImage } from '@/lib/googleDrive';
 import { auth } from '../../auth/[...nextauth]/route';
 
 const GOOGLE_DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID!;
@@ -41,41 +41,45 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if (!session) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
-    const drive = await getGoogleDriveClient(true); // Use user OAuth client
+    const userDrive = await getGoogleDriveClient(true);
+    const serviceDrive = await getGoogleDriveClient(false);
 
     const { id } = await params;
-    const updatedBook: BookMetadata = await request.json();
-    if (!updatedBook.id) {
-      return NextResponse.json(
-        { error: 'Book ID is required for updating' },
-        { status: 400 }
-      );
+    const formData = await request.formData();
+    const metadataJson = formData.get('metadata') as string;
+    const coverFile = formData.get('coverFile') as File | null;
+
+    if (!metadataJson) {
+      return NextResponse.json({ error: 'Metadata is required' }, { status: 400 });
     }
 
-    if (updatedBook.id !== id) {
-      return NextResponse.json(
-        { error: 'Book ID in body does not match ID in URL' },
-        { status: 400 }
-      );
+    const updatedBook: Partial<BookMetadata> = JSON.parse(metadataJson);
+    if (updatedBook.id && updatedBook.id !== id) {
+      return NextResponse.json({ error: 'ID mismatch' }, { status: 400 });
     }
 
-    const libraryData = await getLibraryData(drive);
-    const bookIndex = libraryData.books.findIndex((book) => book.id === id);
-
+    const libraryData = await getLibraryData(serviceDrive);
+    const bookIndex = libraryData.books.findIndex((b) => b.id === id);
     if (bookIndex === -1) {
-      return NextResponse.json(
-        { error: 'Book not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Book not found' }, { status: 404 });
     }
+
+    // Handle cover file upload if present
+    if (coverFile) {
+      const coverBuffer = Buffer.from(await coverFile.arrayBuffer());
+      const coverFileId = await uploadCoverImage(userDrive, GOOGLE_DRIVE_FOLDER_ID, id, coverBuffer, coverFile.type);
+      updatedBook.coverFileId = coverFileId;
+      // Optionally remove old cover file? We'll keep it for now.
+    }
+
+    // Merge updates
     libraryData.books[bookIndex] = {
       ...libraryData.books[bookIndex],
       ...updatedBook,
       updatedAt: new Date().toISOString(),
     };
 
-    await saveLibraryData(drive, libraryData);
-
+    await saveLibraryData(userDrive, libraryData);
     return NextResponse.json(libraryData.books[bookIndex]);
   } catch (error) {
     console.error('Error updating book:', error);
@@ -92,7 +96,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     if (!session) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
-    const drive = await getGoogleDriveClient(true); // Use user OAuth client
+    const drive = await getGoogleDriveClient(true);
 
     const { id } = await params;
 

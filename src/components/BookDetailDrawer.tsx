@@ -19,11 +19,11 @@ interface BookDetailDrawerProps {
     notes?: BookNote[];
     userBookState?: UserBookState;
     onUpdateUserBookState?: (bookId: string, isRead?: boolean, isInReadingList?: boolean) => Promise<void>;
-    onCreateNote?: (bookId: string, text?: string, image?: File) => Promise<void>;
+    onCreateNote?: (bookId: string, text?: string) => Promise<void>;
     onDeleteNote?: (noteId: string) => Promise<void>;
     allCollections: LibraryCollection[];
     allGenres?: string[];
-    onCollectionsChanged?: () => void;
+    onCollectionCreated?: (collection: LibraryCollection) => void;
 }
 
 export default function BookDetailDrawer({
@@ -40,15 +40,14 @@ export default function BookDetailDrawer({
     onDeleteNote,
     allCollections,
     allGenres,
-    onCollectionsChanged
+    onCollectionCreated
 }: BookDetailDrawerProps) {
     const { data: session } = useSession();
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isEditingMetadata, setIsEditingMetadata] = useState(false);
     const [newNoteText, setNewNoteText] = useState('');
-    const [newNoteImage, setNewNoteImage] = useState<File | null>(null);
     const [isAddingNote, setIsAddingNote] = useState(false);
-    
+
     // Store actual File object for upload to images/ directory
     const [pendingCoverFile, setPendingCoverFile] = useState<File | null>(null);
     const [pendingCoverPreview, setPendingCoverPreview] = useState<string | null>(null);
@@ -57,7 +56,7 @@ export default function BookDetailDrawer({
     const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
-    
+
     const [showCollectionsModal, setShowCollectionsModal] = useState(false);
     const [newCollectionName, setNewCollectionName] = useState('');
     const [newCollectionDescription, setNewCollectionDescription] = useState('');
@@ -126,7 +125,7 @@ export default function BookDetailDrawer({
         if (!book || !onBookUpdated) return;
         setIsSubmitting(true);
         try {
-            const updated = add 
+            const updated = add
                 ? await bookApi.addToCollection(book.id, collectionName)
                 : await bookApi.removeFromCollection(book.id, collectionName);
             onBookUpdated(updated);
@@ -142,10 +141,11 @@ export default function BookDetailDrawer({
         if (!name || !book) return;
         setIsCreatingCollection(true);
         try {
-            await bookApi.createCollection(name, newCollectionDescription.trim() || undefined);
-            onCollectionsChanged?.();
+            const created = await bookApi.createCollection(name, newCollectionDescription.trim() || undefined);
+            onCollectionCreated?.(created);
             setNewCollectionName('');
             setNewCollectionDescription('');
+            // Add book to the new collection
             await toggleCollection(name, true);
         } catch (err) {
             console.error('Failed to create collection:', err);
@@ -158,11 +158,11 @@ export default function BookDetailDrawer({
         setIsSubmitting(true);
         try {
             const updatedBook = await bookApi.updateBook(
-                book.id, 
-                { ...data, id: book.id }, 
+                book.id,
+                { ...data, id: book.id },
                 pendingCoverFile || undefined
             );
-            
+
             if (onBookUpdated) {
                 onBookUpdated(updatedBook);
             }
@@ -181,9 +181,8 @@ export default function BookDetailDrawer({
         if (!onCreateNote) return;
         setIsSubmitting(true);
         try {
-            await onCreateNote(book.id, newNoteText || undefined, newNoteImage || undefined);
+            await onCreateNote(book.id, newNoteText || undefined);
             setNewNoteText('');
-            setNewNoteImage(null);
             setIsAddingNote(false);
         } catch (error) {
             console.error('Failed to add note:', error);
@@ -192,7 +191,14 @@ export default function BookDetailDrawer({
         }
     };
 
-    const effectiveCover = pendingCoverPreview || book.coverImage;
+    const getCoverUrl = (book: BookMetadata): string | undefined => {
+        if (book.coverFileId) {
+            return `/api/utils/cover-image?fileId=${book.coverFileId}`;
+        }
+        return book.coverImage; // fallback for legacy books
+    };
+
+    const effectiveCover = pendingCoverPreview || getCoverUrl(book);
 
     return (
         <>
@@ -204,9 +210,8 @@ export default function BookDetailDrawer({
             )}
 
             <div
-                className={`overflow-y-auto fixed right-0 top-0 h-full w-full max-w-md bg-white shadow-xl transform transition-transform duration-300 ease-in-out z-50 ${
-                    isOpen ? 'translate-x-0' : 'translate-x-full'
-                }`}
+                className={`overflow-y-auto fixed right-0 top-0 h-full w-full max-w-md bg-white shadow-xl transform transition-transform duration-300 ease-in-out z-50 ${isOpen ? 'translate-x-0' : 'translate-x-full'
+                    }`}
             >
                 <div className='flex flex-col h-full p-4'>
                     <div className='flex flex-col gap-4 flex-grow overflow-y-auto mb-4'>
@@ -224,38 +229,36 @@ export default function BookDetailDrawer({
                                 <div className='flex flex-col h-full justify-between'>
                                     <div>
                                         <div className="text-lg font-bold text-gray-900 leading-tight">{book.title}</div>
-                                        <p className="text-xs text-gray-600 mt-1">{book.author}</p>
+                                        <p className="text-sm text-gray-600 mt-1">{book.author}</p>
                                         <div className='mt-2 flex flex-row gap-2 flex-shrink-0'>
                                             {session && (
-                                                <PencilIcon 
-                                                    onClick={() => { setIsEditingMetadata(true); setPendingCoverPreview(book.coverImage || null); }} 
-                                                    className="cursor-pointer w-5 h-5 text-gray-600 hover:text-blue-600 transition-colors" 
+                                                <PencilIcon
+                                                    onClick={() => { setIsEditingMetadata(true); setPendingCoverPreview(book.coverImage || null); }}
+                                                    className="cursor-pointer w-5 h-5 text-gray-600 hover:text-blue-600 transition-colors"
                                                 />
                                             )}
                                             {session && onDeleteBook && (
-                                                <EraserIcon 
-                                                    onClick={() => onDeleteBook(book)} 
-                                                    className="cursor-pointer w-5 h-5 text-gray-600 hover:text-red-600 transition-colors" 
+                                                <EraserIcon
+                                                    onClick={() => onDeleteBook(book)}
+                                                    className="cursor-pointer w-5 h-5 text-gray-600 hover:text-red-600 transition-colors"
                                                 />
                                             )}
                                         </div>
                                     </div>
                                     {session && onUpdateUserBookState && (
-                                        <div className="mt-2 flex flex-wrap gap-2">
+                                        <div className="mt-3 flex flex-wrap gap-2">
                                             <button
                                                 onClick={() => onUpdateUserBookState(book.id, !userBookState?.isRead, userBookState?.isInReadingList)}
-                                                className={`cursor-pointer px-3 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1.5 ${
-                                                    userBookState?.isRead ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
-                                                }`}
+                                                className={`cursor-pointer px-3 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1.5 ${userBookState?.isRead ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+                                                    }`}
                                             >
                                                 <Check size={14} />
                                                 {userBookState?.isRead ? 'Read' : 'Mark as Read'}
                                             </button>
                                             <button
                                                 onClick={() => setShowCollectionsModal(true)}
-                                                className={`cursor-pointer px-3 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1.5 ${
-                                                    bookCollections.length > 0 ? 'bg-violet-100 text-violet-800' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
-                                                }`}
+                                                className={`cursor-pointer px-3 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1.5 ${bookCollections.length > 0 ? 'bg-violet-100 text-violet-800' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+                                                    }`}
                                             >
                                                 <FolderPlus size={14} />
                                                 {bookCollections.length === 0
@@ -271,7 +274,7 @@ export default function BookDetailDrawer({
                         {isEditingMetadata && session && (
                             <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 space-y-2">
                                 <p className="text-xs text-gray-500">
-                                    Upload a custom image to save in your <code className="bg-gray-200 px-1 rounded">images/</code> folder.
+                                    Upload a cover image
                                 </p>
                                 <div className="flex flex-wrap items-center gap-2">
                                     <button
@@ -296,7 +299,7 @@ export default function BookDetailDrawer({
                                     >
                                         <CameraIcon size={14} /> Take Photo
                                     </button>
-                                    {(pendingCoverPreview || book.coverImage) && (
+                                    {(pendingCoverPreview || book.coverImage || book.coverFileId) && (
                                         <button
                                             type="button"
                                             onClick={() => {
@@ -342,8 +345,8 @@ export default function BookDetailDrawer({
                         <BookMetadataForm
                             book={book}
                             onSubmit={handleMetadataUpdate}
-                            onCancel={() => { 
-                                setIsEditingMetadata(false); 
+                            onCancel={() => {
+                                setIsEditingMetadata(false);
                                 setPendingCoverFile(null);
                                 setPendingCoverPreview(null);
                             }}
@@ -352,8 +355,9 @@ export default function BookDetailDrawer({
                             allGenres={allGenres || []}
                         />
 
-                        <div className="border-t border-gray-200 pt-4">
-                            <div className="flex justify-between items-center mb-3">
+                        <div className="border-t border-gray-200"></div>
+                        <div className="flex flex-col justify-between gap-3">
+                            <div className='flex justify-between items-center'>
                                 <h3 className="text-base font-semibold text-gray-900">Notes</h3>
                                 {session && onCreateNote && (
                                     <button
@@ -365,6 +369,7 @@ export default function BookDetailDrawer({
                                 )}
                             </div>
 
+
                             {isAddingNote && session && onCreateNote && (
                                 <div className="bg-gray-50 p-3 rounded-lg mb-3 border border-gray-200">
                                     <textarea
@@ -373,12 +378,6 @@ export default function BookDetailDrawer({
                                         onChange={(e) => setNewNoteText(e.target.value)}
                                         className="w-full p-2 border border-gray-300 rounded text-sm mb-2 text-gray-900"
                                         rows={3}
-                                    />
-                                    <input
-                                        type="file"
-                                        accept="image/*"
-                                        onChange={(e) => setNewNoteImage(e.target.files?.[0] || null)}
-                                        className="mb-3 text-xs text-gray-600"
                                     />
                                     <button
                                         onClick={handleAddNote}
@@ -394,15 +393,10 @@ export default function BookDetailDrawer({
                                 {notes?.map((note) => (
                                     <div key={note.id} className="bg-gray-50 p-3 rounded-lg border border-gray-100 text-sm">
                                         <p className="text-gray-800">{note.text}</p>
-                                        {note.imageUrl && (
-                                            <div className="mt-2">
-                                                <img src={note.imageUrl} alt="Note attachment" className="max-h-32 rounded border border-gray-200" />
-                                            </div>
-                                        )}
                                         {note.userId === session?.user?.id && onDeleteNote && (
                                             <button
                                                 onClick={() => onDeleteNote(note.id)}
-                                                className="cursor-pointer text-red-500 text-xs mt-2 hover:text-red-700 font-medium"
+                                                className="cursor-pointer text-red-500 text-xs mt-2 hover:text-red-700 font-medium flex w-full justify-end"
                                             >
                                                 Delete
                                             </button>
@@ -507,17 +501,15 @@ export default function BookDetailDrawer({
                                                     key={c.id}
                                                     onClick={() => toggleCollection(c.name, !isIn)}
                                                     disabled={isSubmitting}
-                                                    className={`cursor-pointer w-full text-left px-3 py-2 rounded-md border transition-colors text-xs flex items-center justify-between gap-3 ${
-                                                        isIn ? 'bg-violet-50 border-violet-300 text-violet-900' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-800'
-                                                    }`}
+                                                    className={`cursor-pointer w-full text-left px-3 py-2 rounded-md border transition-colors text-xs flex items-center justify-between gap-3 ${isIn ? 'bg-violet-50 border-violet-300 text-violet-900' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-800'
+                                                        }`}
                                                 >
                                                     <div className="min-w-0">
                                                         <div className="font-medium truncate">{c.name}</div>
                                                         {c.description && <div className="text-[11px] text-gray-500 truncate">{c.description}</div>}
                                                     </div>
-                                                    <div className={`flex-shrink-0 w-4 h-4 rounded border flex items-center justify-center text-[10px] ${
-                                                        isIn ? 'bg-violet-600 border-violet-600 text-white' : 'border-gray-300'
-                                                    }`}>
+                                                    <div className={`flex-shrink-0 w-4 h-4 rounded border flex items-center justify-center text-[10px] ${isIn ? 'bg-violet-600 border-violet-600 text-white' : 'border-gray-300'
+                                                        }`}>
                                                         {isIn && '✓'}
                                                     </div>
                                                 </button>

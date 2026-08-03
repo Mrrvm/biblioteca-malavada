@@ -6,7 +6,7 @@ import { bookApi } from '@/lib/api/books';
 import { AcquiredBookNote, BookMetadata, LibraryCollection, LibraryData, UserBookState } from '@/app/types/book';
 import BookGrid from '@/components/BookGrid';
 import BookDetailDrawer from '@/components/BookDetailDrawer';
-import { PencilSimple, Plus, TrashSimple, X } from '@phosphor-icons/react';
+import { ArrowLeft, PencilSimple, Plus, TrashSimple, X } from '@phosphor-icons/react';
 
 type TabKey = 'collections' | 'toAcquire' | 'readBooks';
 
@@ -44,6 +44,66 @@ export default function Profile() {
       setLoading(false);
     }
   };
+
+  // --- Local state update helpers ---
+  const updateBookInState = (updatedBook: BookMetadata) => {
+    setLibraryData(prev => ({
+      ...prev,
+      books: prev.books.map(b => b.id === updatedBook.id ? updatedBook : b),
+    }));
+  };
+
+  const updateUserBookStateInState = (updatedState: UserBookState) => {
+    setLibraryData(prev => ({
+      ...prev,
+      userBookStates: prev.userBookStates.map(s =>
+        s.userId === updatedState.userId && s.bookId === updatedState.bookId ? updatedState : s
+      ),
+    }));
+  };
+
+  const updateCollectionInState = (updatedCollection: LibraryCollection) => {
+    setLibraryData(prev => ({
+      ...prev,
+      collections: prev.collections.map(c => c.id === updatedCollection.id ? updatedCollection : c),
+    }));
+  };
+
+  const addCollectionInState = (newCollection: LibraryCollection) => {
+    setLibraryData(prev => ({
+      ...prev,
+      collections: [...prev.collections, newCollection],
+    }));
+  };
+
+  const deleteCollectionInState = (collectionId: string) => {
+    setLibraryData(prev => ({
+      ...prev,
+      collections: prev.collections.filter(c => c.id !== collectionId),
+    }));
+  };
+
+  const addAcquireInState = (newItem: AcquiredBookNote) => {
+    setLibraryData(prev => ({
+      ...prev,
+      booksToAcquire: [...prev.booksToAcquire, newItem],
+    }));
+  };
+
+  const updateAcquireInState = (updatedItem: AcquiredBookNote) => {
+    setLibraryData(prev => ({
+      ...prev,
+      booksToAcquire: prev.booksToAcquire.map(item => item.id === updatedItem.id ? updatedItem : item),
+    }));
+  };
+
+  const deleteAcquireInState = (itemId: string) => {
+    setLibraryData(prev => ({
+      ...prev,
+      booksToAcquire: prev.booksToAcquire.filter(item => item.id !== itemId),
+    }));
+  };
+  // --- end helpers ---
 
   const readBooks = useMemo(() => {
     if (!session?.user?.id) return [];
@@ -136,19 +196,20 @@ export default function Profile() {
     setIsSubmittingCollection(true);
     try {
       if (editingCollection) {
-        await bookApi.updateCollection(editingCollection.id, {
+        const updated = await bookApi.updateCollection(editingCollection.id, {
           name: collectionForm.name.trim(),
           description: collectionForm.description.trim() || undefined,
         });
+        updateCollectionInState(updated);
       } else {
-        await bookApi.createCollection(
+        const created = await bookApi.createCollection(
           collectionForm.name.trim(),
           collectionForm.description.trim() || undefined
         );
+        addCollectionInState(created);
       }
       setShowCreateCollection(false);
       setEditingCollection(null);
-      await loadLibraryData();
     } catch (err) {
       console.error('Failed to save collection:', err);
       alert('Failed to save collection');
@@ -161,8 +222,8 @@ export default function Profile() {
     if (!confirm(`Delete collection "${c.name}"? Books will NOT be deleted, just removed from this collection.`)) return;
     try {
       await bookApi.deleteCollection(c.id);
+      deleteCollectionInState(c.id);
       if (expandedCollectionId === c.id) setExpandedCollectionId(null);
-      await loadLibraryData();
     } catch (err) {
       console.error('Failed to delete collection:', err);
       alert('Failed to delete collection');
@@ -200,13 +261,14 @@ export default function Profile() {
         priority: acquireForm.priority,
       };
       if (editingAcquire) {
-        await bookApi.updateBookToAcquire(editingAcquire.id, payload);
+        const updated = await bookApi.updateBookToAcquire(editingAcquire.id, payload);
+        updateAcquireInState(updated);
       } else {
-        await bookApi.addBookToAcquire(payload as any);
+        const created = await bookApi.addBookToAcquire(payload as any);
+        addAcquireInState(created);
       }
       setShowAddAcquire(false);
       setEditingAcquire(null);
-      await loadLibraryData();
     } catch (err) {
       console.error('Failed to save book to acquire:', err);
       alert('Failed to save');
@@ -219,7 +281,7 @@ export default function Profile() {
     if (!confirm(`Remove "${item.title}" from your acquire list?`)) return;
     try {
       await bookApi.deleteBookToAcquire(item.id);
-      await loadLibraryData();
+      deleteAcquireInState(item.id);
     } catch (err) {
       console.error('Failed to delete:', err);
       alert('Failed to delete');
@@ -267,12 +329,12 @@ export default function Profile() {
       <header className="bg-white border-b border-gray-200 p-4 sticky top-0 z-30">
         <div className="max-w-7xl mx-auto flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-4">
-            <h1 className="text-2xl font-bold text-gray-900">
+            <h1 className="text-xl font-bold text-gray-900">
               <button
                 onClick={() => window.location.href = '/'}
                 className="hover:text-blue-600 transition-colors"
               >
-                Biblioteca Malavada
+                biblioteca malavada
               </button>
             </h1>
             <span className="text-gray-400">/</span>
@@ -281,25 +343,25 @@ export default function Profile() {
                 <img
                   src={session.user.image}
                   alt={session.user.name || 'User'}
-                  className="w-9 h-9 rounded-full border border-gray-200"
+                  className="w-8 h-8 rounded-full border border-gray-200"
                 />
               )}
               <div>
                 <div className="text-sm font-semibold text-gray-900">{session.user?.name}</div>
-                <div className="text-xs text-gray-500">Your profile & collections</div>
               </div>
             </div>
           </div>
           <div className="flex items-center gap-3">
             <button
               onClick={() => window.location.href = '/'}
-              className="cursor-pointer bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 transition-colors text-sm"
+              className="flex gap-1 items-center cursor-pointer bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 transition-colors text-xs"
             >
-              ← Library
+              <ArrowLeft size={12} />
+              Library
             </button>
             <button
               onClick={() => signOut()}
-              className="cursor-pointer bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 transition-colors text-sm"
+              className="text-xs cursor-pointer bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 transition-colors text-sm"
             >
               Sign out
             </button>
@@ -307,22 +369,22 @@ export default function Profile() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 py-8">
-        <div className="flex items-center gap-2 mb-6 border-b border-gray-200 pb-2 overflow-x-auto">
+      <main className="flex-1 space-y-3 p-4">
+        <div className="pb-3 flex items-center gap-2 border-b border-gray-200 overflow-x-auto">
           <TabButton tab="collections" label="All Collections" count={myCollections.length} />
           <TabButton tab="toAcquire" label="Wishlist" count={booksToAcquire.length} />
           <TabButton tab="readBooks" label="Read Books" count={readBooks.length} />
         </div>
 
         {activeTab === 'collections' && (
-          <section>
+          <>
             <div className="flex items-center justify-between flex-wrap gap-3">
-              <div className="text-2xl font-bold text-gray-900">All Collections</div>
+              <div className="text-xl font-bold text-gray-900">All Collections</div>
               <button
                 onClick={openCreateCollection}
-                className="cursor-pointer inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm font-medium shadow-sm"
+                className="text-xs cursor-pointer inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm font-medium shadow-sm"
               >
-                <Plus size={18} /> New Collection
+                <Plus size={12} /> New Collection
               </button>
             </div>
 
@@ -330,9 +392,9 @@ export default function Profile() {
               <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
                 <button
                   onClick={openCreateCollection}
-                  className="cursor-pointer inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm"
+                  className="text-xs cursor-pointer inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm"
                 >
-                  <Plus size={18} /> Create First Collection
+                  <Plus size={12} /> Create First Collection
                 </button>
               </div>
             ) : (
@@ -415,31 +477,30 @@ export default function Profile() {
                 })}
               </div>
             )}
-          </section>
+          </>
         )}
 
         {activeTab === 'toAcquire' && (
-          <section>
-            <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+          <>
+            <div className="flex items-center justify-between flex-wrap gap-3">
               <div>
-                <h2 className="text-2xl font-bold text-gray-900">Wishlist</h2>
+                <h2 className="text-xl font-bold text-gray-900">Wishlist</h2>
               </div>
               <button
                 onClick={openAddAcquire}
-                className="cursor-pointer inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm font-medium shadow-sm"
+                className="text-xs cursor-pointer inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm font-medium shadow-sm"
               >
-                <Plus size={18} /> Add Book
+                <Plus size={12} /> Add Book
               </button>
             </div>
 
             {booksToAcquire.length === 0 ? (
               <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">Your wish list is empty</h3>
                 <button
                   onClick={openAddAcquire}
-                  className="cursor-pointer inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm"
+                  className="text-xs cursor-pointer inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm"
                 >
-                  <Plus size={18} /> Add First Book
+                  <Plus size={12} /> Add First Book
                 </button>
               </div>
             ) : (
@@ -491,26 +552,28 @@ export default function Profile() {
                 ))}
               </div>
             )}
-          </section>
+          </>
         )}
 
         {activeTab === 'readBooks' && (
-          <section className="mb-12">
-            <div className="mb-6">
-              <div className="text-2xl font-bold text-gray-900">Read Books</div>
-            </div>
-            {readBooks.length !== 0 &&
+          <>
+            <div className="text-xl font-bold text-gray-900">Read Books</div>
+            {readBooks.length !== 0 ?
               <BookGrid books={readBooks} onBookClick={handleBookClick} />
+              :
+              <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">No books read</h3>
+              </div>
             }
-          </section>
+          </>
         )}
       </main>
 
       {showCreateCollection && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => !isSubmittingCollection && setShowCreateCollection(false)}>
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-              <h2 className="text-xl font-semibold text-gray-900">
+            <div className="p-4 py-3 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="text-md font-semibold text-gray-900">
                 {editingCollection ? 'Edit Collection' : 'Create New Collection'}
               </h2>
               <button
@@ -521,7 +584,7 @@ export default function Profile() {
                 <X size={20} />
               </button>
             </div>
-            <form onSubmit={submitCollection} className="p-6 space-y-4">
+            <form onSubmit={submitCollection} className="p-4 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Collection Name <span className="text-red-500">*</span>
@@ -549,7 +612,7 @@ export default function Profile() {
                   maxLength={500}
                 />
               </div>
-              <div className="flex items-center justify-end gap-3 pt-2">
+              <div className="flex items-center justify-end gap-3">
                 <button
                   type="button"
                   onClick={() => setShowCreateCollection(false)}
@@ -574,8 +637,8 @@ export default function Profile() {
       {showAddAcquire && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => !isSubmittingAcquire && setShowAddAcquire(false)}>
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-              <h2 className="text-xl font-semibold text-gray-900">
+            <div className="p-4 py-3 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="text-md font-semibold text-gray-900">
                 {editingAcquire ? 'Edit Book to Acquire' : 'Add Book to Acquire'}
               </h2>
               <button
@@ -586,7 +649,7 @@ export default function Profile() {
                 <X size={20} />
               </button>
             </div>
-            <form onSubmit={submitAcquire} className="p-6 space-y-4">
+            <form onSubmit={submitAcquire} className="p-4 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Title <span className="text-red-500">*</span>
@@ -633,7 +696,7 @@ export default function Profile() {
                         : 'border-gray-200 text-gray-600 hover:bg-gray-50'
                         }`}
                     >
-                      {p === 'high' && '🔴 '}{p === 'medium' && '🟡 '}{p === 'low' && '🔵 '}{p}
+                      {p === 'high'}{p === 'medium'}{p === 'low'}{p}
                     </button>
                   ))}
                 </div>
@@ -650,7 +713,7 @@ export default function Profile() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                 />
               </div>
-              <div className="flex items-center justify-end gap-3 pt-2">
+              <div className="flex items-center justify-end gap-3">
                 <button
                   type="button"
                   onClick={() => setShowAddAcquire(false)}
@@ -677,12 +740,12 @@ export default function Profile() {
         isOpen={isDrawerOpen}
         onClose={handleCloseDrawer}
         onReadBook={handleReadBook}
-        onBookUpdated={loadLibraryData}
+        onBookUpdated={updateBookInState}
         notes={libraryData.notes.filter(note => note.bookId === (selectedBook?.id || ''))}
         userBookState={session ? libraryData.userBookStates.find(state => state.bookId === (selectedBook?.id || '') && state.userId === session.user?.id) : undefined}
         onUpdateUserBookState={session ? async (bookId, isRead, isInReadingList) => {
-          await bookApi.updateUserBookState(bookId, isRead, isInReadingList);
-          await loadLibraryData();
+          const updated = await bookApi.updateUserBookState(bookId, isRead, isInReadingList);
+          updateUserBookStateInState(updated);
         } : undefined}
         allCollections={libraryData.collections}
         allGenres={uniqueGenres}

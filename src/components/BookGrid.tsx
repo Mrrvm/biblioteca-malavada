@@ -8,21 +8,27 @@ interface BookGridProps {
 }
 
 function BookGrid({ books, onBookClick }: BookGridProps) {
+    const getCoverUrl = (book: BookMetadata): string => {
+        if (book.coverFileId) {
+            return `/api/utils/cover-image?fileId=${book.coverFileId}`;
+        }
+        return book.coverImage || ''; // fallback for legacy books
+    };
+
     return (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 p-4">
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-6 gap-4">
             {books.map((book) => (
                 <div
                     key={book.id}
                     className="group cursor-pointer transition-transform hover:scale-105"
                     onClick={() => onBookClick(book)}
                 >
-                    <div className="bg-gray-200 rounded-lg overflow-hidden shadow-md" style={{ aspectRatio: '3 / 4' }}>
-                        {book.coverImage ? (
+                    <div className="bg-gray-200 rounded-xs overflow-hidden shadow-md" style={{ aspectRatio: '3 / 4' }}>
+                        {getCoverUrl(book) ? (
                             <img
-                                src={book.coverImage}
+                                src={getCoverUrl(book)}
                                 alt={book.title}
                                 className="w-full h-full object-cover"
-
                             />
                         ) : (
                             <div className="w-full h-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center">
@@ -40,10 +46,10 @@ function BookGrid({ books, onBookClick }: BookGridProps) {
                         <p className="text-gray-500 text-xs">
                             {book.author}
                         </p>
-                        <div className="flex flex-wrap gap-1 mt-1">
+                        <div className="flex flex-wrap gap-1 mt-1 items-center">
                             {book.genres && (
                                 <>
-                                    {book.genres.map((genre, index) => (
+                                    {book.genres.slice(0, 2).map((genre, index) => (
                                         <span
                                             key={index}
                                             className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full"
@@ -61,7 +67,7 @@ function BookGrid({ books, onBookClick }: BookGridProps) {
                             {book.collections && (
                                 <>
                                     {
-                                        book.collections.map((genre, index) => (
+                                        book.collections.slice(0, 2).map((genre, index) => (
                                             <span
                                                 key={index}
                                                 className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full"
