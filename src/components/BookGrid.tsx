@@ -1,6 +1,7 @@
 'use client';
 
 import { BookMetadata } from '@/app/types/book';
+import { useMemo } from 'react';
 
 interface BookGridProps {
     books: BookMetadata[];
@@ -8,6 +9,10 @@ interface BookGridProps {
 }
 
 function BookGrid({ books, onBookClick }: BookGridProps) {
+    const randomizedBooks = useMemo(() => {
+        return [...books].sort(() => Math.random() - 0.5);
+    }, [books]);
+
     const getCoverUrl = (book: BookMetadata): string => {
         if (book.coverFileId) {
             return `/api/utils/cover-image?fileId=${book.coverFileId}`;
@@ -17,7 +22,7 @@ function BookGrid({ books, onBookClick }: BookGridProps) {
 
     return (
         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-6 gap-4">
-            {books.map((book) => (
+            {randomizedBooks.map((book) => (
                 <div
                     key={book.id}
                     className="group cursor-pointer transition-transform hover:scale-105"
