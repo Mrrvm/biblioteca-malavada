@@ -215,8 +215,8 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
           )}
           {book.fileType && (
             <div>
-              <span className="font-medium text-gray-500">File Type</span>
-              <p className="text-gray-900">{book.fileType === 'physical' ? 'paper' : book.fileType}</p>
+              <span className="font-medium text-gray-500">Type</span>
+              <p className="text-gray-900">{book.fileType === 'physical' ? 'Paper' : book.fileType}</p>
             </div>
           )}
         </div>
