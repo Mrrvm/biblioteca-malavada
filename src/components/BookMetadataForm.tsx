@@ -206,12 +206,20 @@ export function BookMetadataForm({ book, onSubmit, onCancel, isSubmitting, isEdi
             </div>
           )}
         </div>
-        {book.isbn && (
-          <div>
-            <span className="font-medium text-gray-500">Ref</span>
-            <p className="text-gray-900">{book.isbn}</p>
-          </div>
-        )}
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(0,1fr))] gap-4">
+          {book.isbn && (
+            <div>
+              <span className="font-medium text-gray-500">Ref</span>
+              <p className="text-gray-900">{book.isbn}</p>
+            </div>
+          )}
+          {book.fileType && (
+            <div>
+              <span className="font-medium text-gray-500">File Type</span>
+              <p className="text-gray-900">{book.fileType}</p>
+            </div>
+          )}
+        </div>
       </div>
     );
   }
