@@ -22,6 +22,7 @@ function Library() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [selectedCollections, setSelectedCollections] = useState<string[]>([]);
+  const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
 
   useEffect(() => {
@@ -108,7 +109,7 @@ function Library() {
   }, [libraryData.books]);
 
   const filteredBooks = useMemo(() => {
-    if (!searchQuery.trim() && selectedCollections.length === 0 && selectedGenres.length === 0) return libraryData.books;
+    if (!searchQuery.trim() && selectedCollections.length === 0 && selectedGenres.length === 0 && selectedLanguages.length === 0) return libraryData.books;
 
     const query = searchQuery.toLowerCase();
     return libraryData.books.filter(book => {
@@ -117,9 +118,12 @@ function Library() {
         (book.collections?.some(collection => selectedCollections.includes(collection)) ?? false);
       const matchesGenres = selectedGenres.length === 0 ||
         (book.genres?.some(genre => selectedGenres.includes(genre)) ?? false);
-      return matchesSearch && matchesCollections && matchesGenres;
+      const matchesLanguage =
+        selectedLanguages.length === 0 ||
+        (book.language && selectedLanguages.includes(book.language));
+      return matchesSearch && matchesCollections && matchesGenres && matchesLanguage;
     });
-  }, [libraryData.books, searchQuery, selectedCollections, selectedGenres]);
+  }, [libraryData.books, searchQuery, selectedCollections, selectedGenres, selectedLanguages]);
 
   const handleBookClick = (book: BookMetadata) => {
     setSelectedBook(book);
@@ -269,6 +273,13 @@ function Library() {
             onChange={setSelectedCollections}
             placeholder="All Collections"
             label="Collections"
+          />
+          <MultiSelect
+            options={[{ label: 'English', value: 'en' }, { label: 'Portuguese', value: 'pt' }, { label: 'Spanish', value: 'es' }, { label: 'French', value: 'fr' }, { label: 'Dutch', value: 'nl' }]}
+            selected={selectedLanguages}
+            onChange={setSelectedLanguages}
+            placeholder="All Languages"
+            label="Languages"
           />
         </div>
 

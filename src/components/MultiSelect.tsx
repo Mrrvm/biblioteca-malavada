@@ -2,10 +2,17 @@
 
 import { useState, useRef, useEffect, KeyboardEvent } from 'react';
 
+export interface SelectOption {
+  label: string;
+  value: string;
+}
+
+export type OptionInput = SelectOption | string;
+
 interface MultiSelectProps {
-  options: string[];
-  selected: string[];
-  onChange: (selected: string[]) => void;
+  options: OptionInput[];
+  selected: string[]; // Always string array of selected values
+  onChange: (selectedValues: string[]) => void;
   placeholder?: string;
   label?: string;
   creatable?: boolean;
@@ -13,11 +20,25 @@ interface MultiSelectProps {
   disabled?: boolean;
 }
 
-function MultiSelect({ options, selected, onChange, placeholder = "Select options...", label, creatable, onCreateOption, disabled }: MultiSelectProps) {
+const normalizeOption = (opt: OptionInput): SelectOption =>
+  typeof opt === 'string' ? { label: opt, value: opt } : opt;
+
+function MultiSelect({
+  options: rawOptions,
+  selected = [],
+  onChange,
+  placeholder = "Select options...",
+  label,
+  creatable,
+  onCreateOption,
+  disabled
+}: MultiSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const options = rawOptions.map(normalizeOption);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -31,26 +52,30 @@ function MultiSelect({ options, selected, onChange, placeholder = "Select option
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const toggleOption = (option: string) => {
-    if (selected.includes(option)) {
-      onChange(selected.filter(item => item !== option));
+  const toggleOption = (value: string) => {
+    if (selected.includes(value)) {
+      onChange(selected.filter(val => val !== value));
     } else {
-      onChange([...selected, option]);
+      onChange([...selected, value]);
     }
   };
 
-  const removeOption = (option: string) => {
-    onChange(selected.filter(item => item !== option));
+  const removeOption = (value: string) => {
+    onChange(selected.filter(val => val !== value));
   };
 
-  const createOption = (value: string) => {
-    const trimmed = value.trim();
+  const createOption = (val: string) => {
+    const trimmed = val.trim();
     if (!trimmed) return;
+
     const lower = trimmed.toLowerCase();
-    const existingOption = options.find(o => o.toLowerCase() === lower);
-    if (existingOption) {
-      if (!selected.includes(existingOption)) {
-        toggleOption(existingOption);
+    const existing = options.find(
+      o => o.label.toLowerCase() === lower || o.value.toLowerCase() === lower
+    );
+
+    if (existing) {
+      if (!selected.includes(existing.value)) {
+        toggleOption(existing.value);
       }
     } else if (!selected.some(s => s.toLowerCase() === lower)) {
       if (onCreateOption) {
@@ -66,11 +91,8 @@ function MultiSelect({ options, selected, onChange, placeholder = "Select option
       e.preventDefault();
       if (creatable && inputValue.trim()) {
         createOption(inputValue);
-      } else if (isOpen) {
-        const filtered = filteredOptions;
-        if (filtered.length > 0) {
-          toggleOption(filtered[0]);
-        }
+      } else if (isOpen && filteredOptions.length > 0) {
+        toggleOption(filteredOptions[0].value);
       }
     } else if (e.key === 'Backspace' && inputValue === '' && selected.length > 0) {
       removeOption(selected[selected.length - 1]);
@@ -86,13 +108,24 @@ function MultiSelect({ options, selected, onChange, placeholder = "Select option
   };
 
   const filteredOptions = options.filter(
-    o => !selected.some(s => s.toLowerCase() === o.toLowerCase())
-      && o.toLowerCase().includes(inputValue.toLowerCase())
+    o =>
+      !selected.includes(o.value) &&
+      o.label.toLowerCase().includes(inputValue.toLowerCase())
   );
 
-  const showCreateTip = creatable && inputValue.trim() && !options.some(
-    o => o.toLowerCase() === inputValue.trim().toLowerCase()
-  );
+  const showCreateTip =
+    creatable &&
+    inputValue.trim() &&
+    !options.some(
+      o =>
+        o.label.toLowerCase() === inputValue.trim().toLowerCase() ||
+        o.value.toLowerCase() === inputValue.trim().toLowerCase()
+    );
+
+  const getLabelForValue = (val: string) => {
+    const found = options.find(o => o.value === val);
+    return found ? found.label : val;
+  };
 
   return (
     <div className="relative" ref={dropdownRef}>
@@ -103,7 +136,8 @@ function MultiSelect({ options, selected, onChange, placeholder = "Select option
       )}
 
       <div
-        className={`min-h-10 px-3 py-2 border border-gray-300 rounded-md focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 text-gray-900 bg-white ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
+        className={`min-h-10 px-3 py-2 border border-gray-300 rounded-md focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 text-gray-900 bg-white ${disabled ? 'opacity-60 cursor-not-allowed' : ''
+          }`}
         onClick={() => {
           if (!disabled) {
             setIsOpen(true);
@@ -112,17 +146,17 @@ function MultiSelect({ options, selected, onChange, placeholder = "Select option
         }}
       >
         <div className="flex flex-wrap gap-2 items-center">
-          {selected.map(option => (
+          {selected.map(value => (
             <span
-              key={option}
+              key={value}
               className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 text-sm px-2 py-0.5 rounded-full"
             >
-              {option}
+              {getLabelForValue(value)}
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (!disabled) removeOption(option);
+                  if (!disabled) removeOption(value);
                 }}
                 className="flex items-center cursor-pointer text-blue-600 hover:text-blue-800 leading-none"
                 tabIndex={-1}
@@ -166,19 +200,19 @@ function MultiSelect({ options, selected, onChange, placeholder = "Select option
           ) : (
             filteredOptions.map(option => (
               <div
-                key={option}
-                className={`px-3 py-2 cursor-pointer hover:bg-gray-100 ${selected.includes(option) ? 'bg-blue-50' : ''
+                key={option.value}
+                className={`px-3 py-2 cursor-pointer hover:bg-gray-100 ${selected.includes(option.value) ? 'bg-blue-50' : ''
                   }`}
-                onClick={() => toggleOption(option)}
+                onClick={() => toggleOption(option.value)}
               >
                 <div className="flex items-center">
                   <input
                     type="checkbox"
-                    checked={selected.includes(option)}
+                    checked={selected.includes(option.value)}
                     onChange={() => { }}
                     className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 mr-2"
                   />
-                  <span className='text-gray-800'>{option}</span>
+                  <span className="text-gray-800">{option.label}</span>
                 </div>
               </div>
             ))
