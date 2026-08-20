@@ -121,7 +121,7 @@ function DraggableMeshBook({
         return { x, y };
     };
 
-    const handlePointerDown = (e: THREE.Event) => {
+    const handlePointerDown = (e: any) => {
         e.stopPropagation();
         const event = e.nativeEvent as PointerEvent;
 
@@ -139,20 +139,20 @@ function DraggableMeshBook({
         }
     };
 
-    const handlePointerMove = (e: THREE.Event) => {
+    const handlePointerMove = (e: any) => {
         if (!isDragging || !meshRef.current) return;
         e.stopPropagation();
 
         const event = e.nativeEvent as PointerEvent;
         const ndc = getCanvasNDCPointer(event);
 
-        raycaster.setFromCamera(ndc, camera);
+        raycaster.setFromCamera(ndc as THREE.Vector2, camera);
         if (raycaster.ray.intersectPlane(dragPlane.current, planeIntersect.current)) {
             meshRef.current.position.copy(planeIntersect.current);
         }
     };
 
-    const handlePointerUp = (e: THREE.Event) => {
+    const handlePointerUp = (e: any) => {
         if (isDragging) {
             e.stopPropagation();
             const event = e.nativeEvent as PointerEvent;
