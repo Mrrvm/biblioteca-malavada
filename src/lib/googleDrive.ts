@@ -5,7 +5,6 @@ import { BookMetadata, LibraryData } from '@/app/types/book';
 import { extractMetadataFromFilename, searchBookMetadataOnline } from './metadataExtractor';
 import { searchCoverImage } from '@/app/api/utils/coverImage';
 import { Readable } from 'stream';
-import { PDFDocument } from 'pdf-lib';
 import JSZip from 'jszip';
 
 let serviceAccountClient: JWT | null = null;

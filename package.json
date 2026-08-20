@@ -13,6 +13,9 @@
     "@aws-sdk/s3-request-presigner": "^3.948.0",
     "@hookform/resolvers": "^5.2.2",
     "@phosphor-icons/react": "^2.1.10",
+    "@react-three/drei": "^10.7.8",
+    "@react-three/fiber": "^9.7.0",
+    "@types/three": "^0.185.4",
     "css-select": "^6.0.0",
     "dom-parser": "^1.1.5",
     "epubjs": "^0.3.93",
@@ -29,6 +32,7 @@
     "react": "19.2.1",
     "react-dom": "19.2.1",
     "react-hook-form": "^7.68.0",
+    "three": "^0.185.1",
     "zod": "^4.1.13"
   },
   "devDependencies": {
@@ -36,9 +40,11 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "dotenv-cli": "^11.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.0.10",
     "tailwindcss": "^4.1.18",
+    "tsx": "^4.23.12",
     "typescript": "^5"
   }
 }
