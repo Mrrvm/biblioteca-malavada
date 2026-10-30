@@ -235,7 +235,7 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                     <label className="text-sm font-medium text-gray-700">File</label>
                     <input
                         ref={fileInputRef}
-                        className='h-10 px-2 border border-gray-300 rounded-md py-1 text-sm text-gray-900'
+                        className='w-full min-w-0 h-10 px-2 border border-gray-300 rounded-md py-1 text-sm text-gray-900'
                         type="file"
                         accept=".epub,.pdf,.acsm"
                         onChange={(e) => {
@@ -320,7 +320,7 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                 )}
             </div>
 
-            <div className='flex flex-row gap-4'>
+            <div className='flex flex-col sm:flex-row gap-4'>
                 <div className='flex flex-col gap-1 w-full'>
                     <label className="text-sm font-medium text-gray-700">Title</label>
                     <input
@@ -343,7 +343,7 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                 </div>
             </div>
 
-            <div className='flex flex-row gap-4'>
+            <div className='flex flex-col sm:flex-row gap-4'>
                 <div className='flex flex-col gap-1 w-full'>
                     <label className="text-sm font-medium text-gray-700">ISBN</label>
                     <input
@@ -374,7 +374,7 @@ export function UploadBook({ onUploadComplete, collectionsOptions = [], genresOp
                 />
             </div>
 
-            <div className='flex flex-row gap-4'>
+            <div className='flex flex-col sm:flex-row gap-4'>
                 <div className='flex flex-col gap-1 w-full'>
                     <label className="text-sm font-medium text-gray-700">Publication Year</label>
                     <input

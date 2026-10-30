@@ -394,35 +394,37 @@ function Library() {
       />
 
       {isUploadModalOpen && session && (
-        <div className="text-black fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-xl">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-semibold">Upload Book</h2>
-                <button
-                  onClick={() => setIsUploadModalOpen(false)}
-                  className="cursor-pointer p-2"
-                >
-                  <svg
-                    className="w-6 h-6"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
+        <div className="text-black fixed inset-0 bg-black/40 z-50 overflow-y-auto">
+          <div className="flex min-h-full items-center justify-center p-4">
+            <div className="bg-white rounded-lg max-w-2xl w-full shadow-xl">
+              <div className="p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-xl font-semibold">Upload Book</h2>
+                  <button
+                    onClick={() => setIsUploadModalOpen(false)}
+                    className="cursor-pointer p-2"
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                </button>
+                    <svg
+                      className="w-6 h-6"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M6 18L18 6M6 6l12 12"
+                      />
+                    </svg>
+                  </button>
+                </div>
+                <UploadBook
+                  onUploadComplete={handleBookUploaded}
+                  collectionsOptions={libraryData.collections.map((c) => c.name)}
+                  genresOptions={uniqueGenres}
+                />
               </div>
-              <UploadBook
-                onUploadComplete={handleBookUploaded}
-                collectionsOptions={libraryData.collections.map((c) => c.name)}
-                genresOptions={uniqueGenres}
-              />
             </div>
           </div>
         </div>
